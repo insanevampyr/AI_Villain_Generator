@@ -64,13 +64,21 @@ if st.session_state.villain:
     if st.button("🎨 Generate with AI"):
         with st.spinner("Summoning villain through the multiverse..."):
             ai_path = generate_ai_portrait(villain)
+            visual_prompt = st.session_state.get("visual_prompt", None)
+
             if ai_path and os.path.exists(ai_path):
                 st.session_state.ai_image = ai_path
-                st.session_state.villain_image = ai_path  # This ensures UI refresh and card is rebuilt
+                st.session_state.villain_image = ai_path
                 st.session_state.card_file = create_villain_card(villain, image_file=ai_path, theme_name=style)
                 st.success("AI-generated portrait added!")
+
+                # 🧠 Show the GPT visual prompt (debug aid)
+                if visual_prompt:
+                    with st.expander("🧠 See AI Image Prompt", expanded=False):
+                        st.markdown(f"```text\n{visual_prompt}\n```")
             else:
                 st.error("Something went wrong during AI generation.")
+
 
     image_file = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
 

@@ -139,19 +139,70 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image.save(outpath)
     return outpath
 
+def generate_visual_prompt(villain):
+    """
+    Converts villain profile into a DALL·E-friendly image prompt (no names, text, or logos).
+    Uses GPT-3.5-turbo to generate a cinematic, text-free visual description.
+    """
+    from openai import OpenAI
+
+    client = OpenAI()
+    system_prompt = (
+        "You are converting villain character data into a visually descriptive image prompt for DALL·E 3.\n"
+        "Your task: Describe what this villain would look like in an image—without using any names, labels, titles, or text. "
+        "No banners, no symbols, no written language. Just pure visual description.\n\n"
+        "Use cinematic, stylized language (like concept art). Focus on color, lighting, emotion, expression, stance, "
+        "armor/clothes, effects, aura, background, and other visual-only details.\n\n"
+        "Output a single, clean 1–2 sentence prompt."
+    )
+
+    user_prompt = f"""
+Name: {villain.get('name', '')}
+Alias: {villain.get('alias', '')}
+Powers: {villain.get('power', '')}
+Appearance: (implied)
+Origin: {villain.get('origin', '')}
+Theme/Faction: {villain.get('faction', '')}
+Threat Level: {villain.get('threat_level', '')}
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.8,
+            max_tokens=150
+        )
+        visual_prompt = response.choices[0].message.content.strip()
+
+        # ✅ Optional Debug
+        print(f"[Visual Prompt Generated]\n{visual_prompt}\n")
+
+        return visual_prompt
+    except Exception as e:
+        print(f"[Error generating visual prompt]: {e}")
+        return (
+            f"A mysterious figure with ambiguous features, standing in dramatic lighting, surrounded by shadows and energy. "
+            f"No text, logos, or signs in view."
+        )
+
+
+import streamlit as st  # add to top if not already
+
 def generate_ai_portrait(villain):
     client = OpenAI()
-    prompt = (
-        f"Portrait of a supervillain named {villain['name']} also known as {villain['alias']}, "
-        f"with powers of {villain['power']}, themed around {villain['origin']}. "
-        f"Mood: {villain['faction']}, Tone: {villain['threat_level']}. "
-        "Highly detailed, cinematic lighting, dark background. No text, no logos, no writing."
-    )
+
+    # 🧠 New GPT-3.5-powered visual prompt
+    visual_prompt = generate_visual_prompt(villain)
+    st.session_state["visual_prompt"] = visual_prompt
 
     try:
         response = client.images.generate(
             model="dall-e-3",
-            prompt=prompt,
+            prompt=visual_prompt,
             n=1,
             size="1024x1024"
         )
@@ -159,7 +210,10 @@ def generate_ai_portrait(villain):
         img_data = requests.get(img_url).content
 
         os.makedirs(IMAGE_FOLDER, exist_ok=True)
-        filename = os.path.join(IMAGE_FOLDER, f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png")
+        filename = os.path.join(
+            IMAGE_FOLDER,
+            f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png"
+        )
         with open(filename, "wb") as f:
             f.write(img_data)
 
@@ -167,6 +221,8 @@ def generate_ai_portrait(villain):
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None
+
+
 
 __all__ = [
     "create_villain_card",
