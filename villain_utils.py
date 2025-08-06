@@ -115,3 +115,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     bordered_image = ImageOps.expand(image, border=6, fill="white")
     bordered_image.save(filename)
     return filename
+
+__all__ = [
+    "create_villain_card",
+    "save_villain_to_log",
+    "generate_ai_portrait",
+    "STYLE_THEMES"
+]
