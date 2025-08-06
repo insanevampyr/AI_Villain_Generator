@@ -59,12 +59,13 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     font_path = "arial.ttf"
     italic_font_path = "ariali.ttf"
-    font_size = 20
-    title_font_size = 26
-    margin = 30
-    line_spacing = 10
-    section_spacing = 16
-    text_wrap_width = 55
+    font_size = 26               # Bigger main text
+    title_font_size = 34         # Bigger name/title
+    margin = 40                  # More padding around edges
+    line_spacing = 14            # More line space
+    section_spacing = 20         # Better section breaks
+    text_wrap_width = 48         # Slightly narrower for larger font
+
 
     try:
         font = ImageFont.truetype(font_path, font_size)
