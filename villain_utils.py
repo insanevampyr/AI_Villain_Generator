@@ -16,6 +16,11 @@ STYLE_THEMES = {
     "cyberpunk": {"accent": "#39ff14", "text": "#ffffff"},
 }
 
+# Local folder paths
+CARD_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
+IMAGE_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
+
+
 def save_villain_to_log(villain):
     log_dir = "villain_logs"
     os.makedirs(log_dir, exist_ok=True)
@@ -24,6 +29,7 @@ def save_villain_to_log(villain):
     with open(filename, "w", encoding="utf-8") as f:
         for key, value in villain.items():
             f.write(f"{key}: {value}\n")
+
 
 def generate_ai_portrait(villain):
     client = OpenAI()
@@ -44,8 +50,8 @@ def generate_ai_portrait(villain):
         image_url = response.data[0].url
         img_data = requests.get(image_url).content
 
-        os.makedirs("villain_cards", exist_ok=True)
-        filename = f"villain_cards/ai_portrait_{villain['name'].replace(' ', '_').lower()}.png"
+        os.makedirs(IMAGE_FOLDER, exist_ok=True)
+        filename = os.path.join(IMAGE_FOLDER, f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png")
         with open(filename, "wb") as f:
             f.write(img_data)
 
@@ -54,6 +60,7 @@ def generate_ai_portrait(villain):
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None
+
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
@@ -145,8 +152,8 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         portrait_img = apply_circular_glow(portrait)
         image.paste(portrait_img.convert("RGB"), (card_width - portrait_img.width - margin, margin))
 
-    os.makedirs("villain_cards", exist_ok=True)
-    filename = f"villain_cards/{villain['name'].replace(' ', '_').lower()}_card.png"
+    os.makedirs(CARD_FOLDER, exist_ok=True)
+    filename = os.path.join(CARD_FOLDER, f"{villain['name'].replace(' ', '_').lower()}_card.png")
     bordered_image = ImageOps.expand(image, border=4, fill="white")
     bordered_image.save(filename)
 
