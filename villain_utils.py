@@ -29,7 +29,7 @@ def save_villain_to_log(villain):
     filename = os.path.join("villain_logs", f"villain_{timestamp}.txt")
     with open(filename, "w", encoding="utf-8") as f:
         for key, value in villain.items():
-            f.write(f"{key}: {value}\n")
+            f.write(f"{key}: {value}\\n")
 
 # === Card Generator ===
 def create_villain_card(villain, image_file=None, theme_name="dark"):
