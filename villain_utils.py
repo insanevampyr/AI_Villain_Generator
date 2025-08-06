@@ -36,72 +36,44 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     portrait_size = (260, 260)
     card_width = 1080
+    card_height = 1420  # Give lots of space for all sections!
     margin = 50
-    spacing = 20
-    wrap_width = 75
+    spacing = 22  # Space between sections
+    label_spacing = 8  # Space after each label
+    bullet_spacing = 6
+    wrap_width = 52
 
     try:
         font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 32)
-        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 48)
+        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 54)
         section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 38)
         italic_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 32)
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
-    # Prevent crash if catchphrase is broken
+    # Data prep
     catchphrase = villain.get("catchphrase", "")
     if not catchphrase or "Expecting value" in catchphrase:
         catchphrase = "Unknown"
-    villain["catchphrase"] = catchphrase
-
-    lines = [
-        (f"🦹 {villain['name']} aka {villain['alias']}", title_font, theme["accent"]),
-        ("", font, theme["text"]),
-    ]
-
-    def add_section(title, body, override_font=None):
-        lines.append((title + ":", section_font, theme["text"]))
-        if isinstance(body, list):
-            for item in body:
-                lines.append((f"- {item}", font, theme["text"]))
-        else:
-            wrapped = textwrap.wrap(body, width=wrap_width)
-            for line in wrapped:
-                lines.append((line, override_font or font, theme["text"]))
-        lines.append(("", font, theme["text"]))
-
-    add_section("Power", villain["power"])
-    add_section("Weakness", villain["weakness"])
-    add_section("Nemesis", villain["nemesis"])
-    add_section("Lair", villain["lair"])
-    add_section("Catchphrase", villain["catchphrase"], italic_font)
     crimes = villain.get("crimes", "Unknown")
     if isinstance(crimes, str):
         crimes = [crimes]
-    add_section("Crimes", crimes)
-    add_section("Threat Level", villain["threat_level"])
-    add_section("Faction", villain["faction"])
-    add_section("Origin", villain["origin"])
 
-    def line_height(f): return f.getbbox("Ay")[3] + spacing
-    total_height = margin * 2 + sum(line_height(f) for _, f, _ in lines)
-    image = Image.new("RGB", (card_width, total_height), (10, 10, 10))
+    # RGBA background
+    image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(image)
 
-    y = margin
-    for text, fnt, color in lines:
-        draw.text((margin, y), text, font=fnt, fill=color)
-        y += line_height(fnt)
-
+    # ---- Portrait ----
     def apply_circular_glow(img):
         img = img.resize(portrait_size).convert("RGBA")
         mask = Image.new("L", portrait_size, 0)
         ImageDraw.Draw(mask).ellipse((0, 0) + portrait_size, fill=255)
         img.putalpha(mask)
         glow = img.copy().filter(ImageFilter.GaussianBlur(10))
-        glow_layer = Image.new("RGBA", portrait_size, (255, 255, 255, 0))
-        glow_layer.paste(glow, (0, 0), mask)
-        return Image.alpha_composite(glow_layer, img)
+        result = Image.new("RGBA", portrait_size, (0, 0, 0, 0))
+        result.paste(glow, (0, 0), mask)
+        result.paste(img, (0, 0), img)
+        return result
 
     portrait = None
     try:
@@ -116,14 +88,53 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     except Exception as e:
         print(f"Error loading portrait: {e}")
 
+    # Place portrait (top-right)
     if portrait:
         final_portrait = apply_circular_glow(portrait)
-        image.paste(final_portrait.convert("RGB"), (card_width - portrait_size[0] - margin, margin))
+        image.paste(final_portrait, (card_width - portrait_size[0] - margin, margin), final_portrait)
 
+    # ---- Text Layout ----
+    x, y = margin, margin
+
+    # Header (Name/Alias)
+    name_text = f"{villain['name']} aka {villain['alias']}"
+    draw.text((x, y), name_text, font=title_font, fill=theme["accent"])
+    y += title_font.getbbox("Ay")[3] + spacing
+
+    # Utility: wrapped section
+    def section(label, content, font_override=None, bullet=False, italic=False):
+        nonlocal y
+        draw.text((x, y), f"{label}:", font=section_font, fill=theme["text"])
+        y += section_font.getbbox("Ay")[3] + label_spacing
+        font_used = font_override or font
+        if bullet and isinstance(content, list):
+            for item in content:
+                draw.text((x + 22, y), f"• {item}", font=font_used, fill=theme["text"])
+                y += font_used.getbbox("Ay")[3] + bullet_spacing
+        else:
+            style_font = italic_font if italic else font_used
+            for line in textwrap.wrap(content, width=wrap_width):
+                draw.text((x + 10, y), line, font=style_font, fill=theme["text"])
+                y += style_font.getbbox("Ay")[3] + 3
+        y += spacing
+
+    section("Power", villain["power"])
+    section("Weakness", villain["weakness"])
+    section("Nemesis", villain["nemesis"])
+    section("Lair", villain["lair"])
+    section("Catchphrase", catchphrase, italic=True)
+    section("Crimes", crimes, bullet=True)
+    section("Threat Level", villain["threat_level"])
+    section("Faction", villain["faction"])
+    section("Origin", villain["origin"])
+
+    # White border
+    image = ImageOps.expand(image, border=6, fill="white")
     os.makedirs(CARD_FOLDER, exist_ok=True)
-    output_path = os.path.join(CARD_FOLDER, f"{villain['name'].replace(' ', '_').lower()}_card.png")
-    ImageOps.expand(image, border=6, fill="white").save(output_path)
-    return output_path
+    filename = f"{villain['name'].replace(' ', '_').lower()}_card.png"
+    outpath = os.path.join(CARD_FOLDER, filename)
+    image.save(outpath)
+    return outpath
 
 def generate_ai_portrait(villain):
     client = OpenAI()
