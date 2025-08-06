@@ -48,6 +48,12 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
+    # Prevent crash if catchphrase is broken
+    catchphrase = villain.get("catchphrase", "")
+    if not catchphrase or "Expecting value" in catchphrase:
+        catchphrase = "Unknown"
+    villain["catchphrase"] = catchphrase
+
     lines = [
         (f"🦹 {villain['name']} aka {villain['alias']}", title_font, theme["accent"]),
         ("", font, theme["text"]),
@@ -69,7 +75,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     add_section("Nemesis", villain["nemesis"])
     add_section("Lair", villain["lair"])
     add_section("Catchphrase", villain["catchphrase"], italic_font)
-    add_section("Crimes", villain["crimes"])
+    crimes = villain.get("crimes", "Unknown")
+    if isinstance(crimes, str):
+        crimes = [crimes]
+    add_section("Crimes", crimes)
     add_section("Threat Level", villain["threat_level"])
     add_section("Faction", villain["faction"])
     add_section("Origin", villain["origin"])
