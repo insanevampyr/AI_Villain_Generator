@@ -1,9 +1,14 @@
 import openai
 import os
+import streamlit as st
 from dotenv import load_dotenv
 
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Load local .env only if not running on Streamlit Cloud
+if not st.secrets:
+    load_dotenv()
+
+# Fallback to os.getenv if not running on cloud
+openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
 
 def generate_villain(tone="dark"):
     prompt = f"""
