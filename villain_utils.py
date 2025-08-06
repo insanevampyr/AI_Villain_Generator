@@ -1,4 +1,3 @@
-
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 import os
 import datetime
@@ -20,6 +19,7 @@ STYLE_THEMES = {
 
 CARD_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
+DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
 
 # === Logging ===
 def save_villain_to_log(villain):
@@ -41,10 +41,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 
     # === Fonts ===
     try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 28)
-        title_font = ImageFont.truetype("DejaVuSans.ttf", 42)
-        section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
-        italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", 28)
+        font = ImageFont.truetype("DejaVuSans.ttf", 32)
+        title_font = ImageFont.truetype("DejaVuSans.ttf", 48)
+        section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
+        italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", 32)
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
@@ -58,7 +58,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         lines.append((title + ":", section_font, theme["text"]))
         if isinstance(body, list):
             for item in body:
-                lines.append((f"   • {item}", font, theme["text"]))
+                lines.append((f"- {item}", font, theme["text"]))
         else:
             wrapped = textwrap.wrap(body, width=wrap_width)
             for line in wrapped:
@@ -104,8 +104,8 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         elif isinstance(image_file, str) and os.path.exists(image_file):
             with open(image_file, "rb") as f:
                 portrait = Image.open(f).copy()
-        elif os.path.exists("default_placeholder.jpg"):
-            portrait = Image.open("default_placeholder.jpg").copy()
+        elif os.path.exists(DEFAULT_IMAGE):
+            portrait = Image.open(DEFAULT_IMAGE).copy()
     except Exception as e:
         print(f"Error loading portrait: {e}")
 
