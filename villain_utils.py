@@ -20,6 +20,15 @@ STYLE_THEMES = {
 CARD_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
 
+def save_villain_to_log(villain):
+    log_dir = "villain_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = os.path.join(log_dir, f"villain_{timestamp}.txt")
+    with open(filename, "w", encoding="utf-8") as f:
+        for key, value in villain.items():
+            f.write(f"{key}: {value}\n")
+
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
