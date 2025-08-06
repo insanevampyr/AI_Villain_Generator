@@ -40,7 +40,20 @@ origin: A brief 2–3 sentence origin story
     try:
         import json
         raw = response.choices[0].message.content.strip()
-        data = json.loads(raw)
+
+        # Show the raw response in Streamlit so we can debug
+        import streamlit as st
+        st.subheader("🔍 DEBUG: Raw AI Output")
+        st.code(raw)
+
+        # Then try to load it as JSON
+        import json
+        try:
+            data = json.loads(raw)
+        except Exception as e:
+            st.error(f"JSON Parse Error: {e}")
+            st.stop()  # stops the app here if it fails
+
         return {
             "name": data.get("name", "Unknown"),
             "alias": data.get("alias", "Unknown"),
