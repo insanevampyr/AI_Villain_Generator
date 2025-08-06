@@ -1,3 +1,4 @@
+
 import openai
 import os
 import streamlit as st
@@ -10,8 +11,15 @@ if not st.secrets:
     load_dotenv()
 openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
 
+def infer_gender_from_origin(origin):
+    origin_lower = origin.lower()
+    if " she " in origin_lower or origin_lower.startswith("she "):
+        return "female"
+    elif " he " in origin_lower or origin_lower.startswith("he "):
+        return "male"
+    return None
+
 def generate_villain(tone="dark"):
-    # Variety + originality boost
     variety_prompt = random.choice([
         "Avoid using shadow or darkness-based powers.",
         "Avoid doctors and scientists as characters.",
@@ -22,7 +30,7 @@ def generate_villain(tone="dark"):
         "Make the character totally unpredictable or strange."
     ])
 
-    prompt = f"""
+    prompt = f'''
 Create a unique and original supervillain character profile in a {tone} tone. 
 You must not use shadow/darkness powers or doctor/scientist names.
 {variety_prompt}
@@ -39,8 +47,8 @@ catchphrase: A short quote they often say
 crimes: List of crimes or signature actions
 threat_level: One of [Low, Moderate, High, Extreme]
 faction: Group or syndicate name
-origin: A 2–3 sentence origin story
-"""
+origin: A 2-3 sentence origin story
+'''
 
     try:
         response = openai.chat.completions.create(
@@ -58,6 +66,11 @@ origin: A 2–3 sentence origin story
         raw = re.sub(r",\s*]", "]", raw)
         data = json.loads(raw)
 
+        origin = data.get("origin", "Unknown")
+        gender = infer_gender_from_origin(origin)
+        if gender is None:
+            gender = random.choice(["male", "female", "nonbinary"])
+
         return {
             "name": data.get("name", "Unknown"),
             "alias": data.get("alias", "Unknown"),
@@ -69,7 +82,8 @@ origin: A 2–3 sentence origin story
             "crimes": data.get("crimes", "Unknown"),
             "threat_level": data.get("threat_level", "Unknown"),
             "faction": data.get("faction", "Unknown"),
-            "origin": data.get("origin", "Unknown"),
+            "origin": origin,
+            "gender": gender
         }
     except Exception as e:
         return {
@@ -84,4 +98,5 @@ origin: A 2–3 sentence origin story
             "threat_level": "Unknown",
             "faction": "Unknown",
             "origin": "The generator failed to parse the villain data.",
+            "gender": "unknown"
         }
