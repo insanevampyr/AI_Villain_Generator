@@ -41,6 +41,11 @@ origin: A brief 2–3 sentence origin story
         import json
         raw = response.choices[0].message.content.strip()
 
+        # 💡 Fix: remove illegal trailing commas
+        import re
+        raw = re.sub(r",\s*}", "}", raw)
+        raw = re.sub(r",\s*]", "]", raw)
+
         # Show the raw response in Streamlit so we can debug
         import streamlit as st
         st.subheader("🔍 DEBUG: Raw AI Output")
