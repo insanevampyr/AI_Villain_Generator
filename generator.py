@@ -48,8 +48,8 @@ origin: A brief 2–3 sentence origin story
 
         # Show the raw response in Streamlit so we can debug
         import streamlit as st
-        st.subheader("🔍 DEBUG: Raw AI Output")
-        st.code(raw)
+        #st.subheader("🔍 DEBUG: Raw AI Output")
+        #st.code(raw)
 
         # Then try to load it as JSON
         import json
