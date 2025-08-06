@@ -20,6 +20,7 @@ STYLE_THEMES = {
 CARD_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
 DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
+FONT_PATH = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
 
 # === Logging ===
 def save_villain_to_log(villain):
@@ -39,16 +40,14 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     spacing = 20
     wrap_width = 75
 
-    # === Fonts ===
     try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 32)
-        title_font = ImageFont.truetype("DejaVuSans.ttf", 48)
-        section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 38)
-        italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", 32)
+        font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 32)
+        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 48)
+        section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 38)
+        italic_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 32)
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
-    # === Build Text Sections ===
     lines = [
         (f"🦹 {villain['name']} aka {villain['alias']}", title_font, theme["accent"]),
         ("", font, theme["text"]),
@@ -85,7 +84,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         draw.text((margin, y), text, font=fnt, fill=color)
         y += line_height(fnt)
 
-    # === Portrait ===
     def apply_circular_glow(img):
         img = img.resize(portrait_size).convert("RGBA")
         mask = Image.new("L", portrait_size, 0)
@@ -118,7 +116,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     ImageOps.expand(image, border=6, fill="white").save(output_path)
     return output_path
 
-# === AI Portrait Generator ===
 def generate_ai_portrait(villain):
     client = OpenAI()
     prompt = (
@@ -144,12 +141,10 @@ def generate_ai_portrait(villain):
             f.write(img_data)
 
         return filename
-
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None
 
-# === Exported API ===
 __all__ = [
     "create_villain_card",
     "save_villain_to_log",
