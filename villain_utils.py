@@ -5,6 +5,7 @@ import textwrap
 import requests
 from openai import OpenAI
 
+# === Constants ===
 STYLE_THEMES = {
     "dark": {"accent": "#ff4b4b", "text": "#ffffff"},
     "funny": {"accent": "#ffcc00", "text": "#ffffff"},
@@ -16,50 +17,8 @@ STYLE_THEMES = {
     "cyberpunk": {"accent": "#39ff14", "text": "#ffffff"},
 }
 
-# Local folder paths
 CARD_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
-
-
-def save_villain_to_log(villain):
-    log_dir = "villain_logs"
-    os.makedirs(log_dir, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = os.path.join(log_dir, f"villain_{timestamp}.txt")
-    with open(filename, "w", encoding="utf-8") as f:
-        for key, value in villain.items():
-            f.write(f"{key}: {value}\n")
-
-
-def generate_ai_portrait(villain):
-    client = OpenAI()
-    prompt = (
-        f"Portrait of a supervillain named {villain['name']} also known as {villain['alias']}, "
-        f"with powers of {villain['power']}, themed around {villain['origin']}. "
-        f"Mood: {villain['faction']}, Tone: {villain['threat_level']}. "
-        "Highly detailed, cinematic lighting, dark background. No text, no logos, no writing."
-    )
-
-    try:
-        response = client.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            n=1,
-            size="1024x1024"
-        )
-        image_url = response.data[0].url
-        img_data = requests.get(image_url).content
-
-        os.makedirs(IMAGE_FOLDER, exist_ok=True)
-        filename = os.path.join(IMAGE_FOLDER, f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png")
-        with open(filename, "wb") as f:
-            f.write(img_data)
-
-        return filename
-
-    except Exception as e:
-        print(f"Error generating AI portrait: {e}")
-        return None
 
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
@@ -75,7 +34,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", font_size)
         title_font = ImageFont.truetype("DejaVuSans.ttf", title_font_size)
-        section_font = ImageFont.truetype("DejaVuSans.ttf", section_title_size)
+        section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", section_title_size)
         italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", font_size)
     except IOError:
         font = ImageFont.load_default()
@@ -83,7 +42,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         section_font = font
         italic_font = font
 
-    # Assemble content blocks
+    # === Content blocks ===
     sections = [
         ("Power", villain["power"]),
         ("Weakness", villain["weakness"]),
@@ -105,18 +64,15 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         body = section[1]
         font_override = section[2] if len(section) == 3 else font
 
-        lines.append((title + ":", section_font, theme["accent"]))
+        lines.append((title + ":", section_font, theme["text"]))  # section titles = bold white
         wrapped = textwrap.wrap(body, width=text_wrap_width)
         for line in wrapped:
             lines.append((line, font_override, theme["text"]))
         lines.append(("", font, theme["text"]))
 
-    # Estimate height
     def line_height(f): return f.getbbox("Ay")[3] + spacing
-    content_width = 700  # leave space for image
     card_height = margin * 2 + sum(line_height(f) for _, f, _ in lines)
     card_width = 1080
-
     image = Image.new("RGB", (card_width, card_height), (10, 10, 10))
     draw = ImageDraw.Draw(image)
 
@@ -125,7 +81,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         draw.text((margin, y), text, font=used_font, fill=color)
         y += line_height(used_font)
 
-    # Handle image in top-right
+    # === Portrait logic ===
     def apply_circular_glow(portrait_img):
         portrait_img = portrait_img.resize(portrait_size).convert("RGBA")
         mask = Image.new("L", portrait_size, 0)
@@ -158,5 +114,4 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     filename = os.path.join(CARD_FOLDER, f"{villain['name'].replace(' ', '_').lower()}_card.png")
     bordered_image = ImageOps.expand(image, border=6, fill="white")
     bordered_image.save(filename)
-
     return filename
