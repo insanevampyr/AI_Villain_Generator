@@ -35,14 +35,14 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     portrait_size = (220, 220)
     card_width = 1080
     margin = 40
-    spacing = 16
-    wrap_width = 60
+    spacing = 12
+    wrap_width = 58
 
     # === Fonts ===
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", 26)
         title_font = ImageFont.truetype("DejaVuSans.ttf", 36)
-        section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+        section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
         italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", 26)
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
@@ -53,11 +53,15 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         ("", font, theme["text"]),
     ]
 
-    def add_section(title, body, font_override=font):
-        lines.append((f"{title}:", section_font, theme["text"]))
-        wrapped = textwrap.wrap(body, width=wrap_width)
-        for line in wrapped:
-            lines.append((line, font_override, theme["text"]))
+    def add_section(title, body, override_font=None):
+        lines.append((title + ":", section_font, theme["text"]))
+        if isinstance(body, list):
+            for item in body:
+                lines.append((f"- {item}", font, theme["text"]))
+        else:
+            wrapped = textwrap.wrap(body, width=wrap_width)
+            for line in wrapped:
+                lines.append((line, override_font or font, theme["text"]))
         lines.append(("", font, theme["text"]))
 
     add_section("Power", villain["power"])
@@ -65,7 +69,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     add_section("Nemesis", villain["nemesis"])
     add_section("Lair", villain["lair"])
     add_section("Catchphrase", villain["catchphrase"], italic_font)
-    add_section("Crimes", "\n".join(f"- {crime}" for crime in villain["crimes"]))
+    add_section("Crimes", villain["crimes"])
     add_section("Threat Level", villain["threat_level"])
     add_section("Faction", villain["faction"])
     add_section("Origin", villain["origin"])
@@ -108,7 +112,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         final_portrait = apply_circular_glow(portrait)
         image.paste(final_portrait.convert("RGB"), (card_width - portrait_size[0] - margin, margin))
 
-    # === Save Card ===
     os.makedirs(CARD_FOLDER, exist_ok=True)
     output_path = os.path.join(CARD_FOLDER, f"{villain['name'].replace(' ', '_').lower()}_card.png")
     ImageOps.expand(image, border=6, fill="white").save(output_path)
