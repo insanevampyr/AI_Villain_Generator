@@ -34,14 +34,15 @@ def save_villain_to_log(villain):
 # === Card Generator ===
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
-    portrait_size = (260, 260)
-    card_width = 950   # was 1080, now more compact like Dr. Fizzy
-    card_height = 1120 # was 1420, much shorter
-    margin = 42
-    spacing = 14
-    label_spacing = 3
-    bullet_spacing = 2
-    wrap_width = 40   # narrower for bold wrapped look
+    portrait_size = (230, 230)
+    card_width = 798   # <-- width of Dr. Fizzy's PNG
+    card_height = 768  # <-- height of Dr. Fizzy's PNG
+    margin = 32        # a bit tighter for small card
+    spacing = 12
+    label_spacing = 2
+    bullet_spacing = 1
+    wrap_width = 36    # wrap sooner for big text
+
 
 
     try:
