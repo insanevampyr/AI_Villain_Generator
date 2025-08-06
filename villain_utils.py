@@ -35,19 +35,21 @@ def save_villain_to_log(villain):
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     portrait_size = (260, 260)
-    card_width = 1080
-    card_height = 1420  # Give lots of space for all sections!
-    margin = 50
-    spacing = 22  # Space between sections
-    label_spacing = 8  # Space after each label
-    bullet_spacing = 6
-    wrap_width = 52
+    card_width = 950   # was 1080, now more compact like Dr. Fizzy
+    card_height = 1120 # was 1420, much shorter
+    margin = 42
+    spacing = 14
+    label_spacing = 3
+    bullet_spacing = 2
+    wrap_width = 40   # narrower for bold wrapped look
+
 
     try:
-        font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 32)
-        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 54)
-        section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 38)
-        italic_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 32)
+        font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 38)  # was 32
+        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 60)  # was 54
+        section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 44)  # was 38
+        italic_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 38)  # was 32
+
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
