@@ -3,6 +3,7 @@ import os
 import datetime
 import textwrap
 import requests
+import streamlit as st
 from openai import OpenAI
 
 # === Constants ===
@@ -21,40 +22,44 @@ CARD_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
 DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
 FONT_PATH = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
+LOG_FOLDER = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 
 # === Logging ===
 def save_villain_to_log(villain):
-    os.makedirs("villain_logs", exist_ok=True)
+    os.makedirs(LOG_FOLDER, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = os.path.join("villain_logs", f"villain_{timestamp}.txt")
+    filename = os.path.join(LOG_FOLDER, f"villain_{timestamp}.txt")
     with open(filename, "w", encoding="utf-8") as f:
         for key, value in villain.items():
-            f.write(f"{key}: {value}\\n")
+            f.write(f"{key}: {value}\n")
+
+def save_visual_prompt_to_log(name, prompt):
+    os.makedirs(LOG_FOLDER, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = os.path.join(LOG_FOLDER, f"prompt_{name}_{timestamp}.txt")
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(prompt.strip())
 
 # === Card Generator ===
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     portrait_size = (230, 230)
-    card_width = 798   # <-- width of Dr. Fizzy's PNG
-    card_height = 768  # <-- height of Dr. Fizzy's PNG
-    margin = 32        # a bit tighter for small card
+    card_width = 798
+    card_height = 768
+    margin = 32
     spacing = 12
     label_spacing = 2
     bullet_spacing = 1
-    wrap_width = 36    # wrap sooner for big text
-
-
+    wrap_width = 36
 
     try:
-        font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 38)  # was 32
-        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 60)  # was 54
-        section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 44)  # was 38
-        italic_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 38)  # was 32
-
+        font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 38)
+        title_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 60)
+        section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 44)
+        italic_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 38)
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
-    # Data prep
     catchphrase = villain.get("catchphrase", "")
     if not catchphrase or "Expecting value" in catchphrase:
         catchphrase = "Unknown"
@@ -62,11 +67,9 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     if isinstance(crimes, str):
         crimes = [crimes]
 
-    # RGBA background
     image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(image)
 
-    # ---- Portrait ----
     def apply_circular_glow(img):
         img = img.resize(portrait_size).convert("RGBA")
         mask = Image.new("L", portrait_size, 0)
@@ -91,20 +94,15 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     except Exception as e:
         print(f"Error loading portrait: {e}")
 
-    # Place portrait (top-right)
     if portrait:
         final_portrait = apply_circular_glow(portrait)
         image.paste(final_portrait, (card_width - portrait_size[0] - margin, margin), final_portrait)
 
-    # ---- Text Layout ----
     x, y = margin, margin
-
-    # Header (Name/Alias)
     name_text = f"{villain['name']} aka {villain['alias']}"
     draw.text((x, y), name_text, font=title_font, fill=theme["accent"])
     y += title_font.getbbox("Ay")[3] + spacing
 
-    # Utility: wrapped section
     def section(label, content, font_override=None, bullet=False, italic=False):
         nonlocal y
         draw.text((x, y), f"{label}:", font=section_font, fill=theme["text"])
@@ -131,7 +129,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     section("Faction", villain["faction"])
     section("Origin", villain["origin"])
 
-    # White border
     image = ImageOps.expand(image, border=6, fill="white")
     os.makedirs(CARD_FOLDER, exist_ok=True)
     filename = f"{villain['name'].replace(' ', '_').lower()}_card.png"
@@ -139,30 +136,70 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image.save(outpath)
     return outpath
 
-def generate_ai_portrait(villain):
+def generate_visual_prompt(villain):
     client = OpenAI()
-    prompt = (
-        f"Portrait of a supervillain named {villain['name']} also known as {villain['alias']}, "
-        f"with powers of {villain['power']}, themed around {villain['origin']}. "
-        f"Mood: {villain['faction']}, Tone: {villain['threat_level']}. "
-        "Highly detailed, cinematic lighting, dark background. No text, no logos, no writing."
+
+    gender_hint = villain.get("gender", "unknown").lower()
+    gender_phrase = ""
+    if "female" in gender_hint:
+        gender_phrase = "A feminine silhouette with graceful yet dangerous energy. "
+    elif "male" in gender_hint:
+        gender_phrase = "A masculine figure with powerful presence. "
+
+    system_prompt = (
+        "You are converting villain character data into a visually descriptive image prompt for DALL·E 3. "
+        "Your task: Describe what this villain would look like in a high-quality image — without using any names, labels, titles, or text. "
+        "Do NOT include words, logos, symbols, posters, or banners."
+        " Use cinematic, concept art style. Focus only on color, lighting, expression, clothing, pose, and scene tone."
+        " Softly imply gender through physical description or energy without direct mention."
+        " Output a single, clean 1–2 sentence prompt."
     )
 
+    user_prompt = f"""
+{gender_phrase}
+Origin: {villain.get('origin', '')}
+Power: {villain.get('power', '')}
+Faction: {villain.get('faction', '')}
+Threat Level: {villain.get('threat_level', '')}
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.8,
+            max_tokens=150
+        )
+        visual_prompt = response.choices[0].message.content.strip()
+        st.session_state["visual_prompt"] = visual_prompt
+        save_visual_prompt_to_log(villain['name'], visual_prompt)
+        return visual_prompt
+
+    except Exception as e:
+        print(f"[Error generating visual prompt]: {e}")
+        return (
+            f"A shadowed figure with flowing energy and dramatic lighting. No signs, words, or logos in view."
+        )
+
+def generate_ai_portrait(villain):
+    client = OpenAI()
+    visual_prompt = generate_visual_prompt(villain)
     try:
         response = client.images.generate(
             model="dall-e-3",
-            prompt=prompt,
+            prompt=visual_prompt,
             n=1,
             size="1024x1024"
         )
         img_url = response.data[0].url
         img_data = requests.get(img_url).content
-
         os.makedirs(IMAGE_FOLDER, exist_ok=True)
         filename = os.path.join(IMAGE_FOLDER, f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png")
         with open(filename, "wb") as f:
             f.write(img_data)
-
         return filename
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
