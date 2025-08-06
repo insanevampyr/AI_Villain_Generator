@@ -57,20 +57,17 @@ def generate_ai_portrait(villain):
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
-    font_path = "arial.ttf"
-    italic_font_path = "ariali.ttf"
-    font_size = 26               # Bigger main text
-    title_font_size = 34         # Bigger name/title
-    margin = 40                  # More padding around edges
-    line_spacing = 14            # More line space
-    section_spacing = 20         # Better section breaks
-    text_wrap_width = 48         # Slightly narrower for larger font
-
+    font_size = 26
+    title_font_size = 34
+    margin = 40
+    line_spacing = 14
+    section_spacing = 20
+    text_wrap_width = 48
 
     try:
-        font = ImageFont.truetype(font_path, font_size)
-        title_font = ImageFont.truetype(font_path, title_font_size)
-        italic_font = ImageFont.truetype(italic_font_path, font_size)
+        font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+        title_font = ImageFont.truetype("DejaVuSans.ttf", title_font_size)
+        italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", font_size)
     except IOError:
         font = ImageFont.load_default()
         title_font = font
