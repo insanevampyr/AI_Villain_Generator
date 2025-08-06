@@ -28,7 +28,7 @@ origin: A brief 2–3 sentence origin story
 """
 
     response = openai.chat.completions.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a creative villain generator."},
             {"role": "user", "content": prompt}
