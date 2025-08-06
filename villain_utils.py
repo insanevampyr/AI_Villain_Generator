@@ -125,6 +125,40 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     bordered_image.save(filename)
     return filename
 
+
+def generate_ai_portrait(villain):
+    client = OpenAI()
+    prompt = (
+        f"Portrait of a supervillain named {villain['name']} also known as {villain['alias']}, "
+        f"with powers of {villain['power']}, themed around {villain['origin']}. "
+        f"Mood: {villain['faction']}, Tone: {villain['threat_level']}. "
+        "Highly detailed, cinematic lighting, dark background. No text, no logos, no writing."
+    )
+
+    try:
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            n=1,
+            size="1024x1024"
+        )
+        image_url = response.data[0].url
+        img_data = requests.get(image_url).content
+
+        os.makedirs(IMAGE_FOLDER, exist_ok=True)
+        filename = os.path.join(
+            IMAGE_FOLDER,
+            f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png"
+        )
+        with open(filename, "wb") as f:
+            f.write(img_data)
+
+        return filename
+
+    except Exception as e:
+        print(f"Error generating AI portrait: {e}")
+        return None
+
 __all__ = [
     "create_villain_card",
     "save_villain_to_log",
