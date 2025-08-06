@@ -33,16 +33,16 @@ def save_villain_to_log(villain):
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     font_size = 26
-    title_font_size = 36
+    title_font_size = 38
     section_title_size = 30
-    margin = 40
-    spacing = 16
-    text_wrap_width = 52
-    portrait_size = (220, 220)
+    margin = 50
+    spacing = 14
+    text_wrap_width = 54
+    portrait_size = (240, 240)
 
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", font_size)
-        title_font = ImageFont.truetype("DejaVuSans.ttf", title_font_size)
+        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", title_font_size)
         section_font = ImageFont.truetype("DejaVuSans-Bold.ttf", section_title_size)
         italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", font_size)
     except IOError:
@@ -52,31 +52,34 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         italic_font = font
 
     # === Content blocks ===
+    lines = [(f"🕵️ {villain['name']} aka {villain['alias']}", title_font, theme["accent"]), ("", font, theme["text"])]
     sections = [
         ("Power", villain["power"]),
         ("Weakness", villain["weakness"]),
         ("Nemesis", villain["nemesis"]),
         ("Lair", villain["lair"]),
         ("Catchphrase", villain["catchphrase"], italic_font),
-        ("Crimes", "\n".join(f"- {c}" for c in villain["crimes"])),
+        ("Crimes", villain["crimes"]),  # unwrapped list
         ("Threat Level", villain["threat_level"]),
         ("Faction", villain["faction"]),
         ("Origin", villain["origin"]),
     ]
-
-    lines = []
-    lines.append((f"🕵️ {villain['name']} aka {villain['alias']}", title_font, theme["accent"]))
-    lines.append(("", font, theme["text"]))
 
     for section in sections:
         title = section[0]
         body = section[1]
         font_override = section[2] if len(section) == 3 else font
 
-        lines.append((title + ":", section_font, theme["text"]))  # section titles = bold white
-        wrapped = textwrap.wrap(body, width=text_wrap_width)
-        for line in wrapped:
-            lines.append((line, font_override, theme["text"]))
+        lines.append((title + ":", section_font, theme["text"]))
+        if isinstance(body, list):  # crimes
+            for item in body:
+                wrapped = textwrap.wrap(f"- {item}", width=text_wrap_width)
+                for line in wrapped:
+                    lines.append((line, font, theme["text"]))
+        else:
+            wrapped = textwrap.wrap(body, width=text_wrap_width)
+            for line in wrapped:
+                lines.append((line, font_override, theme["text"]))
         lines.append(("", font, theme["text"]))
 
     def line_height(f): return f.getbbox("Ay")[3] + spacing
@@ -90,7 +93,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         draw.text((margin, y), text, font=used_font, fill=color)
         y += line_height(used_font)
 
-    # === Portrait logic ===
     def apply_circular_glow(portrait_img):
         portrait_img = portrait_img.resize(portrait_size).convert("RGBA")
         mask = Image.new("L", portrait_size, 0)
@@ -158,6 +160,7 @@ def generate_ai_portrait(villain):
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None
+
 
 __all__ = [
     "create_villain_card",
