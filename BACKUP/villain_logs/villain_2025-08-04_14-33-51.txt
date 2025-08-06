@@ -1,0 +1,11 @@
+name: Ezekiel Moros
+alias: The Ebon Reaper
+power: Shadow Manipulation
+weakness: Exposure to intense light
+nemesis: Lumen Knight
+lair: Abyssal Fortress in the Heart of Shadowlands
+catchphrase: When light fades, only darkness remains.
+crimes: ['Plunged the city into eternal darkness', 'Absorbed the souls of countless innocents', 'Manipulated politicians using their shadows', 'Attempted to bring an eternal nightfall']
+threat_level: Extreme
+faction: The Nocturnal Order
+origin: Ezekiel Moros, once a mere night watchman, was consumed by a malicious shadow entity during a solar eclipse. Morphed into The Ebon Reaper, he now seeks to blanket the world in an endless night.

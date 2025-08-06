@@ -1,0 +1,11 @@
+name: Mortimer Cromwell
+alias: Shadow Monarch
+power: Umbrakinesis - Control over shadows and darkness
+weakness: Bright, continuous light
+nemesis: Lumen Knight
+lair: Palace of Nightfall - An ominous castle, hidden in a shadow realm
+catchphrase: Your light will fade... and only shadows will remain.
+crimes: ['Plunged a city into eternal darkness', 'Assassination of several figures of light-powered superheroes', 'Theft of the Solar Crystal from Metro Museum']
+threat_level: Extreme
+faction: The Dark Dominion
+origin: Born into an ancient family of shadow manipulators, Mortimer was always fascinated with the darkness. After being cursed by a dark entity, his fascination became his reality and he became the Night Monarch, seeking to reign supreme in a world of shadows.

@@ -1,0 +1,11 @@
+name: Zedrick Zephyr
+alias: Nebula Phantom
+power: Cosmic Manipulation
+weakness: Limited Energy Source
+nemesis: Galactic Saviour
+lair: Dark Quasar Fortress
+catchphrase: In the void, only shadows remain!
+crimes: ['Planetary Genocide', 'Universal Disruption', 'Black Hole Creation', 'Star System Theft', 'Cosmic Terrorism']
+threat_level: Extreme
+faction: The Space Spectres
+origin: Once an ambitious astrophysicist, Zedrick Zephyr was thrust into the cosmic void during an experiment gone wrong. Forever changed, he now harnesses the raw power of the cosmos as the Nebula Phantom, threatening the very balance of the Universe.

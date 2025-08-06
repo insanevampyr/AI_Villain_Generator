@@ -1,0 +1,11 @@
+name: Mortimer Blackwood
+alias: The Necroshade
+power: Necromancy and Shadow Manipulation
+weakness: Direct Sunlight
+nemesis: Aurora Dawnbringer
+lair: The Cursed Crypts beneath the City of Sorrow
+catchphrase: In darkness, I command!
+crimes: ['Summoned an army of undead to attack the city', 'Assassinated multiple city officials using shadow minions', 'Stole the sacred text of resurrection from the Church of Light']
+threat_level: Extreme
+faction: Necroshadows, a group of dark magic users
+origin: Once a renowned scholar, Mortimer Blackwood delved too deep into forbidden magic and was consumed by the power of necromancy. After losing his family and his sanity, he became the Necroshade, threatening the world with his dark powers.

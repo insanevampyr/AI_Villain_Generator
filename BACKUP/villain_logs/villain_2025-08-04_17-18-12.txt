@@ -1,0 +1,11 @@
+name: Obsidian Vortigon
+alias: The Eclipse Serpent
+power: Can manipulate and control darkness and shadows, transforming them into physical forms and weapons
+weakness: Cannot use powers under total sunlight or in a completely lightened area
+nemesis: Lumina Virtue, the Bringer of Light
+lair: The Pitch-Black Fortress, located in the heart of a perpetually dark forest
+catchphrase: Fear not the dark itself, but what it hides
+crimes: ['Plunged entire cities into eternal darkness', 'Unleashed shadow monsters onto innocent populations', 'Stolen the moonlight', 'Eclipsed the sun']
+threat_level: Extreme
+faction: The Nighthold Alliance
+origin: Once a simple forest dweller, Obsidian Vortigon was seduced by the whispering shadows in the dark. He became their host, gaining immense power but at the cost of his humanity. Now, he seeks to drown the world in shadows, believing that in darkness, true power lies.

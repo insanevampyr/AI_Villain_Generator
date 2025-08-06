@@ -1,0 +1,11 @@
+name: Dr. Gary Goblin
+alias: The Bureaucrat
+power: Amplified Red Tape Creation
+weakness: Efficiency and Common Sense
+nemesis: Captain Efficiency
+lair: The Office of Infinite Paperwork
+catchphrase: Prepare to be processed!
+crimes: ['Causing nationwide paper shortages', 'Imploding communities under zoning laws', 'Increasing government form processing time by 400%', 'Stealing office supplies']
+threat_level: Moderate
+faction: The Ministry of Mismanagement
+origin: Once a mild-mannered government worker, Dr. Gary Goblin got lost in the labyrinth of bureaucracy and emerged as The Bureaucrat. Now wielding the power to summon infinite amounts of red tape, he not only slows things down but also brings them to a complete standstill.

@@ -1,0 +1,11 @@
+name: Mordecai Blackthorn
+alias: The Stygian Specter
+power: Shadow Manipulation
+weakness: Direct Sunlight
+nemesis: Aurora Dawnbearer
+lair: The Obsidian Spire
+catchphrase: In darkness, there is power.
+crimes: ['Citywide Blackout', 'Assassination of important political figures', 'Unleashing shadow monsters into the city center']
+threat_level: Extreme
+faction: Order of the Abyss
+origin: Once a respected scholar, Mordecai Blackthorn was seduced by forbidden, dark magic. Now, as The Stygian Specter, he wields the power of the shadows, plunging entire cities into darkness and sowing terror amongst the populace.

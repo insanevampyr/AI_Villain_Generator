@@ -1,0 +1,11 @@
+name: Dr. Victor Carden
+alias: Oblivion
+power: Reality Manipulation
+weakness: Limitations in Spatial Perception
+nemesis: Guardian of Time
+lair: The Ever-Changing Fortress in Inter-Dimensional Space
+catchphrase: Meet your impending non-existence!
+crimes: ['Reality distortion effecting major cities', 'Erasing historical events and altering timelines', 'Kidnapping renowned scientists across the globe', 'Creating dangerous inter-dimensional rifts']
+threat_level: Extreme
+faction: The Chaos Syndicate
+origin: Victor Carden was once a brilliant physicist who developed a machine meant to alter the fabric of reality. A catastrophic malfunction during the machine's first test forever changed Victor, enhancing his mind but also warping his perception, leading him to become 'Oblivion', the man who seeks to reshape existence itself.

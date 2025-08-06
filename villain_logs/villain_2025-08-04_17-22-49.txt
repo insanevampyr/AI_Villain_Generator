@@ -1,0 +1,11 @@
+name: Dr. Hyperspace
+alias: The Void Master
+power: Ability to manipulate time and space
+weakness: Prone to nausea in physical fights
+nemesis: Captain Continuum
+lair: Intergalactic Citadel in the Phantom Nebula
+catchphrase: Time and space bend to my will!
+crimes: ['Time distortion causing multiple anomalies', 'Black hole creation causing mass destruction', "Theft of galaxies' cosmic powers", 'Assassination of several Solar Senate members']
+threat_level: Extreme
+faction: The Quantum Syndicate
+origin: Once a brilliant Astrophysicist, Dr. Hyperspace discovered a strange, otherworldly element, not found in any periodic table. Exposure to this element gave him the ability to manipulate time and space, driving him to a path of cosmic chaos and destruction.

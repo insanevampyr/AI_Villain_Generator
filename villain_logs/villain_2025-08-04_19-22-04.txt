@@ -1,0 +1,11 @@
+name: Damien Blackheart
+alias: Shadow Serpent
+power: Shadow manipulation, shapeshifting into dark entities
+weakness: Exposure to intense light
+nemesis: Lumen Warrior
+lair: The Obsidian Citadel, nested deep within the Shadowlands
+catchphrase: Embrace the darkness, it's inevitable!
+crimes: ['Engulfing the city of Solara in eternal darkness', 'Possession of numerous influential people to stir chaos', 'Unleashing shadow beasts upon unsuspecting towns', 'Stealing the Sun Crystal, a power source of light', "Kidnapping Lumen Warrior's loved ones to manipulate him"]
+threat_level: Extreme
+faction: The Void Collective
+origin: Once a mere mortal, Damien Blackheart was sucked into the Shadow Dimension by a cursed relic. There, he merged with its dark energy, becoming the Shadow Serpent. Now back in our world, he seeks to merge the Shadow Dimension with Earth, uniting the two in darkness.

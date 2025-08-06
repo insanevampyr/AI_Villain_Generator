@@ -1,0 +1,11 @@
+name: Maxwell Cybernoir
+alias: V0id
+power: Ability to infiltrate and override any digital system
+weakness: Dependent on electronic devices, vulnerable in tech-free zones
+nemesis: Elijah netGuard
+lair: Data Haven, a secret server room deep within the abandoned sector of Neo Tokyo
+catchphrase: In the digital world, I am god.
+crimes: ['Multiple counts of cyber terrorism', 'Digital identity theft', 'Bankrupting megacorporations through massive digital heists', 'Usage and spread of advanced AI viruses']
+threat_level: Extreme
+faction: The Cybernetic Marauders
+origin: Once a top-tier corporate programmer, Maxwell Cybernoir became disillusioned with technological imperialism. Driven by vengeance, he hacked his own mind, becoming V0id, the most feared digital terrorist in the annals of cyberpunk lore.

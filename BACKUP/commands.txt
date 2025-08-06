@@ -1,0 +1,2 @@
+cd C:\Users\VampyrLee\Desktop\AI_Villain
+python -m streamlit run main.py

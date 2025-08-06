@@ -1,0 +1,11 @@
+name: Dr. Ignatius Photon
+alias: The Quantum Marauder
+power: Manipulation of quantum particles
+weakness: Conventional physical attacks
+nemesis: Captain Stellar
+lair: The Infinity Station orbiting a black hole
+catchphrase: Chaos is the only constant!
+crimes: ['Attempted galactic domination', 'Creating quantum singularities', 'Unlawful experimentation on sentient beings', 'Terrorizing multiple star systems', 'Timeframe manipulation']
+threat_level: Extreme
+faction: The Cosmic Conclave
+origin: Dr. Ignatius Photon was a brilliant yet misunderstood quantum physicist. After a failed experiment led to an explosion that exposed him to quantum energy, he became The Quantum Marauder, bent on warping reality itself.

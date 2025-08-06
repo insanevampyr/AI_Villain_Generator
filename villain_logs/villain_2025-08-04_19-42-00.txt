@@ -1,0 +1,11 @@
+name: Dr. Laughenstien
+alias: The Snickering Saboteur
+power: Ability to weaponize laughter into powerful gusts of wind
+weakness: Loses power when unable to laugh or make others laugh
+nemesis: The Stoic Spartan
+lair: The Comedy Castle, hidden in the depths of a twisted fun house
+catchphrase: Laugh, and the world laughs with you; weep, and you weep alone!
+crimes: ["Stealing the world's funniest jokes", 'Attempting to broadcast a hypnosis laugh track globally', 'Unleashing laughing gas into major city centers']
+threat_level: Moderate
+faction: The League of Ludicrous Lunatics
+origin: Once a humble but unsuccessful stand-up comic, an accident involving a laughing gas tank and an energy beam gave him his superpowers. With a twisted sense of humor and a grudge against a world that never laughed at his jokes, he turned to a life of crime.

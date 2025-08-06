@@ -1,0 +1,11 @@
+name: Dr. Viper Maelstrom
+alias: Neon Serpent
+power: Cybernetic Manipulation
+weakness: Dependent on electronic environments
+nemesis: Dynamo Pulsar
+lair: The Silicon Citadel
+catchphrase: Prepare for the digital demise!
+crimes: ['Unleashing viral mechas on Neo Tokyo', 'Shutting down entire Grid of 2075 causing chaos', 'Hijacking cyber-consciousness of the Cyber Senate']
+threat_level: Extreme
+faction: Circuit Shadows
+origin: Once a renowned cybernetic scientist, Dr. Viper Maelstrom was consumed by his pursuit for digital supremacy. After merging his consciousness with a rogue AI, he became the villainous Neon Serpent, hell-bent on asserting his dominance over the digital world.

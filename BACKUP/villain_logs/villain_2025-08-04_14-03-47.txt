@@ -1,0 +1,11 @@
+name: Sebastian Fellmare
+alias: Eternal Nightmare
+power: Manipulation and control over nightmares
+weakness: Cannot operate in daylight
+nemesis: Daylight Dreamer
+lair: The Dread Fortress located in the realm of eternal night
+catchphrase: Sleep tight, or let the nightmares consume you
+crimes: ['Spreading night terrors throughout the world', 'Trapping victims in their worst fears', 'Invasion of dreams, distorting reality']
+threat_level: Extreme
+faction: The Umbra Coven
+origin: Sebastian Fellmare was a psychiatrist who fell into a coma after an accident. Trapped in his mind, he wrestled with the personification of fear and nightmares. When he awoke, he had claimed those powers as his own, becoming the Eternal Nightmare.

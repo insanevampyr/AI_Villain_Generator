@@ -1,0 +1,11 @@
+name: Moros Vandalore
+alias: The Chrono Manipulator
+power: Time Manipulation
+weakness: Quantum Disturbances
+nemesis: Guardian of Reality
+lair: Temporal Citadel within the Vortex of Eons
+catchphrase: Time bends only to my will!
+crimes: ['Temporal Anomalies Creation', 'Eradication of Entire Civilizations', 'Alteration of Historical Events', 'Capture of Time-based Artifacts']
+threat_level: Extreme
+faction: The Cosmic Marauders
+origin: Moros Vandalore was once a humble scientist, obsessed with the mysteries of time. After a forbidden experiment shattered his reality, he emerged as the Chrono Manipulator, a being capable of bending the very fabric of time to his will, vowing to reshape history in his own image.

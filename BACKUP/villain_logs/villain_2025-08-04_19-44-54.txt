@@ -1,0 +1,11 @@
+name: Bertrand Butterworth
+alias: The Unstoppable Pancake
+power: Ability to turn anything and everything into delicious pancakes
+weakness: Strictly gluten-intolerant; can’t eat his own creations
+nemesis: Sir Syrup
+lair: Deep within a secret syrup mine hidden beneath a pancake house
+catchphrase: Prepare for a battering!
+crimes: ['Turned the city library into a giant pancake', 'Made every water source flow with batter', 'Made Slippery Pancake Hills that caused massive traffic']
+threat_level: Moderate
+faction: Brunch Brigade
+origin: Once a humble breakfast chef, Bertrand Butterworth slipped on a pancake and hit his head on a frying pan. He woke up with the ability to turn anything into pancakes, dedicating his life to delicious chaos ever since.

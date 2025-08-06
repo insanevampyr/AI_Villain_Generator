@@ -1,0 +1,11 @@
+name: Orpheus Vendetta
+alias: Shadow Serpent
+power: Shadow manipulation and serpent transformation
+weakness: Direct sunlight
+nemesis: Solarus, the Sun-Scion
+lair: Caverns of Obsidian
+catchphrase: Embrace the endless abyss
+crimes: ['Plunging cities into darkness', 'Summoning shadow serpents to terrorize civilians', 'Conjuring illusions to manipulate world leaders']
+threat_level: Extreme
+faction: Legion of Shadows
+origin: Once a renowned archaeologist, Orpheus stumbled upon a cursed artifact during an expedition, binding his soul to the Shadow Serpent, an ancient evil deity. Now, driven by a thirst for a world shrouded in eternal darkness, he plots and executes nefarious acts as the villainous Shadow Serpent.

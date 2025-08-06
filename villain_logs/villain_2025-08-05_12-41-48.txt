@@ -1,0 +1,11 @@
+name: Morgoroth the Unseen
+alias: The Shadow Master
+power: Umbrakinesis (shadow manipulation)
+weakness: Exposure to pure light
+nemesis: Lumen, the Light Bringer
+lair: The Obsidian Fortress within the Nether Realm
+catchphrase: Darkness is not an absence of light, but a presence of power!
+crimes: ['Plunging cities into perpetual darkness', 'Using shadow creatures to terrorize civilians', 'Theft of the Luminous Crystal']
+threat_level: Extreme
+faction: The Eclipse Council
+origin: Born in the heart of the Nether Realm, Morgoroth was a being of darkness who grew to despise the light. Growing stronger with each eclipse, he used his shadow manipulation to seize power and plans to engulf the world in eternal darkness.

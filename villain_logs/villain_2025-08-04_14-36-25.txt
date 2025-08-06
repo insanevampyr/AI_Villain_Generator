@@ -1,0 +1,11 @@
+name: Dr. Mortimer Thanatos
+alias: The Eclipse
+power: Dark Matter Manipulation
+weakness: Direct Sunlight
+nemesis: Radiant Sunfire
+lair: Shadow Citadel, beneath the Bermuda Triangle
+catchphrase: Embrace the darkness, for I am the Eclipse.
+crimes: ['Global Blackouts', 'Assassinations of High Profile Leaders', 'Release of Interdimensional Shadows', 'Theft of Valuable Artifacts']
+threat_level: Extreme
+faction: The Umbra Sect
+origin: Once a promising Astrophysicist, Dr. Mortimer Thanatos was consumed by the mysteries of Dark Matter. During a classified experiment, a sudden exposure to a Dark Matter core transformed him into a living shadow – The Eclipse, master of darkness and hidden fears.

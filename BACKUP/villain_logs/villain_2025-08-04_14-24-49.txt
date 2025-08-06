@@ -1,0 +1,11 @@
+name: Dr. Nathaniel Strobe
+alias: Neon Phantom
+power: Ability to control all digital interfaces and manipulate holographic imagery
+weakness: Cannot interact with analogue technology
+nemesis: Static Shockwave
+lair: Virtual Citadel, a spatial augmented reality fortress hidden within the depths of the Darknet
+catchphrase: You cannot hide in the shadows, when I control all the lights.
+crimes: ['Unleashed a crippling virus into the global financial network', "Turned city's automated defense systems against itself", 'Hacked and manipulated digital elections for his gain']
+threat_level: Extreme
+faction: The Cyber Syndicate
+origin: Once a renowned global cybersecurity expert, Dr. Nathaniel Strobe fell into obscurity after a major scandal with corporate espionage. Seeking revenge, he utilized his skills to fuse his consciousness with the digital realm, becoming the Neon Phantom.

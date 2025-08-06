@@ -1,0 +1,11 @@
+name: Dr. Beverly Bland
+alias: The Monotone Menace
+power: Power of Boredom; can instantly put anyone to sleep with her mind-numbing monologues
+weakness: Excitement; anything fun, joyful, or energizing can disrupt her powers
+nemesis: Captain Amusement
+lair: Dullsville; an appropriately drab suburb with monotonous architecture
+catchphrase: Prepare for the yawn of your life!
+crimes: ['Cornering the World Napping Market', 'Draining the color from rainbows', 'Inducing worldwide insomnolence']
+threat_level: Moderate
+faction: The Meterosexual Malaise
+origin: Born as the most mundane girl in the world, Beverly Bland was always overlooked and ignored. Embittered by life's excitement passing her by, she sought a way to replicate her monotonous existence onto the world. Thus, the Monotone Menace was born, her every move an ode to the ordinary.

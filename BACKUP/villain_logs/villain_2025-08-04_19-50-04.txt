@@ -1,0 +1,11 @@
+name: Dr. Chuckling Chesscheese
+alias: The Guffawing Gouda
+power: Transform any object into a variety of cheeses
+weakness: Lactose Intolerant
+nemesis: Lactose Man
+lair: Mozzarella Mansion, a giant cheese house on a remote dairy farm
+catchphrase: Prepare to brie defeated!
+crimes: ["Turned the city's water supply into cheese whiz", "Transformed the mayor's car into a block of cheddar", "Created a 'cheeseclipse' blocking the sun with a giant wheel of camembert"]
+threat_level: Moderate
+faction: The Dairy Demons
+origin: Once a brilliant but underappreciated cheesemonger, an accident involving an experimental cheese-making process resulted in Dr. Chuckling Chesscheese acquiring his bizarre, dairy-related powers. Now, with a taste for cheddar and chaos, nothing can stand in his whey!
