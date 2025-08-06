@@ -65,73 +65,75 @@ def generate_ai_portrait(villain):
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     font_size = 26
-    title_font_size = 34
+    title_font_size = 36
+    section_title_size = 30
     margin = 40
-    line_spacing = 14
-    section_spacing = 20
-    text_wrap_width = 48
+    spacing = 16
+    text_wrap_width = 52
+    portrait_size = (220, 220)
 
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", font_size)
         title_font = ImageFont.truetype("DejaVuSans.ttf", title_font_size)
+        section_font = ImageFont.truetype("DejaVuSans.ttf", section_title_size)
         italic_font = ImageFont.truetype("DejaVuSans-Oblique.ttf", font_size)
     except IOError:
         font = ImageFont.load_default()
         title_font = font
+        section_font = font
         italic_font = font
 
+    # Assemble content blocks
+    sections = [
+        ("Power", villain["power"]),
+        ("Weakness", villain["weakness"]),
+        ("Nemesis", villain["nemesis"]),
+        ("Lair", villain["lair"]),
+        ("Catchphrase", villain["catchphrase"], italic_font),
+        ("Crimes", "\n".join(f"- {c}" for c in villain["crimes"])),
+        ("Threat Level", villain["threat_level"]),
+        ("Faction", villain["faction"]),
+        ("Origin", villain["origin"]),
+    ]
+
     lines = []
-    lines.append((f"{villain['name']} aka {villain['alias']}", title_font, theme["accent"]))
+    lines.append((f"🕵️ {villain['name']} aka {villain['alias']}", title_font, theme["accent"]))
     lines.append(("", font, theme["text"]))
 
-    for key in ["power", "weakness", "nemesis", "lair"]:
-        label = key.replace('_', ' ').title()
-        value = str(villain[key])
-        for line in textwrap.wrap(f"{label}: {value}", width=text_wrap_width):
-            lines.append((line, font, theme["text"]))
+    for section in sections:
+        title = section[0]
+        body = section[1]
+        font_override = section[2] if len(section) == 3 else font
+
+        lines.append((title + ":", section_font, theme["accent"]))
+        wrapped = textwrap.wrap(body, width=text_wrap_width)
+        for line in wrapped:
+            lines.append((line, font_override, theme["text"]))
         lines.append(("", font, theme["text"]))
 
-    lines.append(("Catchphrase:", font, theme["text"]))
-    for line in textwrap.wrap(villain['catchphrase'], width=text_wrap_width):
-        lines.append((line, italic_font, theme["text"]))
-    lines.append(("", font, theme["text"]))
+    # Estimate height
+    def line_height(f): return f.getbbox("Ay")[3] + spacing
+    content_width = 700  # leave space for image
+    card_height = margin * 2 + sum(line_height(f) for _, f, _ in lines)
+    card_width = 1080
 
-    lines.append(("Crimes:", font, theme["text"]))
-    for crime in villain['crimes']:
-        for line in textwrap.wrap(f"- {crime}", width=text_wrap_width):
-            lines.append((line, font, theme["text"]))
-    lines.append(("", font, theme["text"]))
-
-    for key in ["threat_level", "faction", "origin"]:
-        label = key.replace('_', ' ').title()
-        value = str(villain[key])
-        for line in textwrap.wrap(f"{label}: {value}", width=text_wrap_width):
-            lines.append((line, font, theme["text"]))
-        lines.append(("", font, theme["text"]))
-
-    line_height = font_size + line_spacing
-    title_height = title_font_size + line_spacing
-    total_height = margin * 2 + sum(title_height if f == title_font else line_height for _, f, _ in lines)
-
-    card_width = 900
-    card_height = max(600, total_height)
-    image = Image.new("RGB", (card_width, card_height), (15, 15, 15))
+    image = Image.new("RGB", (card_width, card_height), (10, 10, 10))
     draw = ImageDraw.Draw(image)
 
     y = margin
     for text, used_font, color in lines:
         draw.text((margin, y), text, font=used_font, fill=color)
-        y += title_height if used_font == title_font else line_height
+        y += line_height(used_font)
 
+    # Handle image in top-right
     def apply_circular_glow(portrait_img):
-        size = (220, 220)
-        portrait_img = portrait_img.resize(size).convert("RGBA")
-        mask = Image.new("L", size, 0)
+        portrait_img = portrait_img.resize(portrait_size).convert("RGBA")
+        mask = Image.new("L", portrait_size, 0)
         draw_mask = ImageDraw.Draw(mask)
-        draw_mask.ellipse((0, 0) + size, fill=255)
+        draw_mask.ellipse((0, 0) + portrait_size, fill=255)
         portrait_img.putalpha(mask)
         glow = portrait_img.copy().filter(ImageFilter.GaussianBlur(10))
-        glow_layer = Image.new("RGBA", size, (255, 255, 255, 0))
+        glow_layer = Image.new("RGBA", portrait_size, (255, 255, 255, 0))
         glow_layer.paste(glow, (0, 0), mask)
         return Image.alpha_composite(glow_layer, portrait_img)
 
@@ -150,11 +152,11 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 
     if portrait:
         portrait_img = apply_circular_glow(portrait)
-        image.paste(portrait_img.convert("RGB"), (card_width - portrait_img.width - margin, margin))
+        image.paste(portrait_img.convert("RGB"), (card_width - portrait_size[0] - margin, margin))
 
     os.makedirs(CARD_FOLDER, exist_ok=True)
     filename = os.path.join(CARD_FOLDER, f"{villain['name'].replace(' ', '_').lower()}_card.png")
-    bordered_image = ImageOps.expand(image, border=4, fill="white")
+    bordered_image = ImageOps.expand(image, border=6, fill="white")
     bordered_image.save(filename)
 
     return filename
