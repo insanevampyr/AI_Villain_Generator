@@ -9,7 +9,7 @@
 ---
 
 ## 🚀 Launch the App
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-streamlit-link-here)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-villain-gen.streamlit.app/)
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## 🖼️ Preview
 
-![preview](https://your-image-link-or-local-path-here)
+![preview](https://raw.githubusercontent.com/ITank-Online/AI_Villian_Gen/main/assets/AI_Villain_logo.png)
 
 ---
 
