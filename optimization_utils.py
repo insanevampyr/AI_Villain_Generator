@@ -1,4 +1,4 @@
-# ✅ Phase 2 Efficiency Utils — debug panel + simple JSON cache
+# ✅ Phase 2 Efficiency Utils — debug panel + simple JSON cache (with back-compat)
 import os
 import json
 import hashlib
@@ -24,6 +24,14 @@ def _estimate_token_cost(prompt: str, max_output_tokens: int = 150, model: str =
 # ---------------- Hash helpers ----------------
 def hash_text(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+# Back-compat for older modules (villain_utils expects these)
+def hash_villain(villain: dict) -> str:
+    base = f"{villain.get('name','')}|{villain.get('alias','')}|{villain.get('power','')}|{villain.get('origin','')}"
+    return hashlib.md5(base.encode("utf-8")).hexdigest()
+
+def dalle_price() -> float:
+    return IMAGE_PRICE_USD
 
 # ---------------- JSON Cache (very small + simple) ----------------
 def _cache_path(namespace: str) -> str:
@@ -53,7 +61,6 @@ def cache_set(namespace: str, key: str, value):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        # Non-fatal
         print(f"[cache_set:{namespace}] {e}")
 
 # ---------------- Debug panel (persistent across reruns) ----------------
@@ -80,7 +87,6 @@ def set_debug_info(
     cost_only: bool = False,
     is_cache_hit: bool = False,
 ):
-    """Store info; the panel is rendered at the end of main.py."""
     if not st.session_state.get("is_dev"):
         return
     info = DebugInfo(
@@ -90,14 +96,12 @@ def set_debug_info(
         cost_only=cost_only,
         is_cache_hit=is_cache_hit,
     ).__dict__
-    # Pre-compute token/cost when we have a prompt and output max
     if prompt and max_output_tokens and not cost_only:
         in_tok, out_tok, cost = _estimate_token_cost(prompt, max_output_tokens)
         info["prompt_tokens"] = in_tok
         info["estimated_output_tokens"] = out_tok
         info["estimated_cost"] = cost
     elif cost_only:
-        # Image cost-only panel
         info["estimated_cost"] = IMAGE_PRICE_USD
     st.session_state["debug_info"] = info
 
@@ -109,7 +113,6 @@ def render_debug_panel():
         return
     with st.expander("🧠 Token Usage Debug (Dev Only)", expanded=True):
         st.markdown(f"**Context:** {info.get('context','Dev mode active')}")
-        # For DALLE we intentionally only show price and the exact prompt.
         if info.get("prompt"):
             st.markdown("**Prompt used:**")
             st.code(info["prompt"])
@@ -124,5 +127,5 @@ def render_debug_panel():
                 st.markdown(f"**Estimated Cost:** ${info['estimated_cost']:.5f} USD")
         if info.get("is_cache_hit"):
             st.info("Cache: **HIT** (no API call)")
-        elif info is not None:
+        else:
             st.caption("Cache: miss")
