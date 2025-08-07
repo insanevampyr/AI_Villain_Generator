@@ -139,29 +139,36 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 def generate_visual_prompt(villain):
     client = OpenAI()
 
+    # --- Visual Gender Description ---
     gender_hint = villain.get("gender", "unknown").lower()
-    gender_phrase = ""
     if "female" in gender_hint:
-        gender_phrase = "A feminine silhouette with graceful yet dangerous energy. "
+        gender_phrase = "feminine, graceful energy"
     elif "male" in gender_hint:
-        gender_phrase = "A masculine figure with powerful presence. "
+        gender_phrase = "masculine, powerful energy"
+    elif "nonbinary" in gender_hint or "androgynous" in gender_hint:
+        gender_phrase = "androgynous presence"
+    else:
+        gender_phrase = "mysterious energy"
 
+    # --- System Prompt ---
     system_prompt = (
-        "You are converting villain character data into a visually descriptive image prompt for DALL·E 3. "
-        "Your task: Describe what this villain would look like in a high-quality image — without using any names, labels, titles, or text. "
-        "Do NOT include words, logos, symbols, posters, or banners."
-        " Use cinematic, concept art style. Focus only on color, lighting, expression, clothing, pose, and scene tone."
-        " Softly imply gender through physical description or energy without direct mention."
-        " Output a single, clean 1–2 sentence prompt."
+        "You are converting villain character data into a DALL·E 3 visual prompt. "
+        "Describe ONLY the villain's appearance for an illustration—"
+        "focus on color, mood, style, pose, clothing, and atmosphere. "
+        "NEVER use any names, text, numbers, symbols, posters, or written words in your description. "
+        "Imply gender only by using adjectives like masculine, feminine, or androgynous, OR by describing visual features and energy. "
+        "Never use direct terms like 'male', 'female', 'man', 'woman', or any labels or text that DALL·E might try to draw. "
+        "Make the prompt 1-2 cinematic sentences; always avoid anything that could appear as text or signature in the image."
     )
 
-    user_prompt = f"""
-{gender_phrase}
-Origin: {villain.get('origin', '')}
-Power: {villain.get('power', '')}
-Faction: {villain.get('faction', '')}
-Threat Level: {villain.get('threat_level', '')}
-"""
+    # --- User Prompt ---
+    user_prompt = (
+        f"{gender_phrase}. "
+        f"Origin: {villain.get('origin', '')} "
+        f"Power: {villain.get('power', '')} "
+        f"Faction: {villain.get('faction', '')} "
+        f"Threat Level: {villain.get('threat_level', '')}"
+    )
 
     try:
         response = client.chat.completions.create(
@@ -181,8 +188,9 @@ Threat Level: {villain.get('threat_level', '')}
     except Exception as e:
         print(f"[Error generating visual prompt]: {e}")
         return (
-            f"A shadowed figure with flowing energy and dramatic lighting. No signs, words, or logos in view."
+            f"A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
         )
+
 
 def generate_ai_portrait(villain):
     client = OpenAI()

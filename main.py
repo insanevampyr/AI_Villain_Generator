@@ -19,7 +19,15 @@ if "free_ai_images_used" not in st.session_state:
 
 
 st.set_page_config(page_title="AI Villain Generator", page_icon="🌙", layout="centered")
-st.title("🌙 AI Villain Generator")
+# Update dev mode in session state for easy access everywhere
+st.session_state['is_dev'] = is_dev
+
+title_text = "🌙 AI Villain Generator"
+if is_dev:
+    title_text += " ⚡"
+
+st.title(title_text)
+
 
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
