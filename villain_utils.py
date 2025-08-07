@@ -5,8 +5,8 @@ import textwrap
 import requests
 import streamlit as st
 from openai import OpenAI
-from optimization_utils import dev_debug_display
 
+from optimization_utils import hash_villain, set_debug_info  # ✅ persistent debug
 
 # === Constants ===
 STYLE_THEMES = {
@@ -154,13 +154,9 @@ def generate_visual_prompt(villain):
 
     # --- System Prompt ---
     system_prompt = (
-        "You are converting villain character data into a DALL·E 3 visual prompt. "
-        "Describe ONLY the villain's appearance for an illustration—"
-        "focus on color, mood, style, pose, clothing, and atmosphere. "
-        "NEVER use any names, text, numbers, symbols, posters, or written words in your description. "
-        "Imply gender only by using adjectives like masculine, feminine, or androgynous, OR by describing visual features and energy. "
-        "Never use direct terms like 'male', 'female', 'man', 'woman', or any labels or text that DALL·E might try to draw. "
-        "Make the prompt 1-2 cinematic sentences; always avoid anything that could appear as text or signature in the image."
+        "Convert villain data into a DALL·E 3 visual prompt. Describe ONLY appearance: color, mood, style, pose, clothing, atmosphere. "
+        "NEVER include names, logos, words, numbers, posters, or text. Imply gender with adjectives (masculine/feminine/androgynous) or visuals. "
+        "1–2 cinematic sentences. Avoid anything that could render as written text."
     )
 
     # --- User Prompt ---
@@ -172,6 +168,21 @@ def generate_visual_prompt(villain):
         f"Threat Level: {villain.get('threat_level', '')}"
     )
 
+    # Store debug for the *chat step* that creates the visual prompt
+    set_debug_info("Visual Prompt Synthesis (chat)", system_prompt + "\n\n" + user_prompt, max_output_tokens=150)
+
+    # === Disk cache for visual prompt text ===
+    os.makedirs(LOG_FOLDER, exist_ok=True)
+    vid = hash_villain(villain)
+    vp_cache_path = os.path.join(LOG_FOLDER, f"vprompt_{vid}.txt")
+    if os.path.exists(vp_cache_path):
+        with open(vp_cache_path, "r", encoding="utf-8") as f:
+            cached = f.read().strip()
+            st.session_state["visual_prompt"] = cached
+            # Show the exact prompt that will be sent to DALL·E
+            set_debug_info("DALL·E Visual Prompt (final)", cached, max_output_tokens=0)
+            return cached
+
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -182,25 +193,35 @@ def generate_visual_prompt(villain):
             temperature=0.8,
             max_tokens=150
         )
-    
         visual_prompt = response.choices[0].message.content.strip()
         st.session_state["visual_prompt"] = visual_prompt
         save_visual_prompt_to_log(villain['name'], visual_prompt)
+
+        # Cache to disk
+        with open(vp_cache_path, "w", encoding="utf-8") as f:
+            f.write(visual_prompt)
+
+        # 🔎 Persist the exact prompt that DALL·E will receive
+        set_debug_info("DALL·E Visual Prompt (final)", visual_prompt, max_output_tokens=0)
         return visual_prompt
 
     except Exception as e:
         print(f"[Error generating visual prompt]: {e}")
-        return (
-            f"A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
-        )
-
-    # 🧠 Dev-only token/cost preview for the visual prompt
-    dev_debug_display(system_prompt + "\n\n" + user_prompt, max_output_tokens=150)
-
+        fallback = "A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
+        set_debug_info("DALL·E Visual Prompt (fallback)", fallback, max_output_tokens=0)
+        return fallback
 
 def generate_ai_portrait(villain):
     client = OpenAI()
     visual_prompt = generate_visual_prompt(villain)
+
+    # === Disk cache for image ===
+    os.makedirs(IMAGE_FOLDER, exist_ok=True)
+    vid = hash_villain(villain)
+    img_path = os.path.join(IMAGE_FOLDER, f"ai_portrait_{vid}.png")
+    if os.path.exists(img_path):
+        return img_path
+
     try:
         response = client.images.generate(
             model="dall-e-3",
@@ -210,11 +231,9 @@ def generate_ai_portrait(villain):
         )
         img_url = response.data[0].url
         img_data = requests.get(img_url).content
-        os.makedirs(IMAGE_FOLDER, exist_ok=True)
-        filename = os.path.join(IMAGE_FOLDER, f"ai_portrait_{villain['name'].replace(' ', '_').lower()}.png")
-        with open(filename, "wb") as f:
+        with open(img_path, "wb") as f:
             f.write(img_data)
-        return filename
+        return img_path
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None

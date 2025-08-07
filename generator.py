@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import random
 import json
 import re
-from optimization_utils import dev_debug_display  # ✅ dev token/cost panel
+from optimization_utils import set_debug_info  # ✅ persistent debug
 
 # Load key from st.secrets first, fallback to .env locally
 if not st.secrets:
@@ -51,8 +51,8 @@ faction: Group or syndicate name
 origin: A 2-3 sentence origin story
 '''
 
-    # 🧠 Dev-only token/cost preview (shows only when dev key == godmode)
-    dev_debug_display(prompt, max_output_tokens=400)
+    # 🧠 Persist dev debug info (this keeps the panel visible)
+    set_debug_info("Villain Details JSON prompt", prompt, max_output_tokens=400)
 
     try:
         response = openai.chat.completions.create(

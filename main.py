@@ -4,6 +4,7 @@ from villain_utils import create_villain_card, save_villain_to_log, STYLE_THEMES
 import os
 import openai
 from dotenv import load_dotenv
+from optimization_utils import render_debug_panel  # ✅ persistent panel
 
 # Load OpenAI key from .env
 load_dotenv()
@@ -17,17 +18,16 @@ is_dev = user_key == DEV_KEY
 if "free_ai_images_used" not in st.session_state:
     st.session_state.free_ai_images_used = 0
 
-
 st.set_page_config(page_title="AI Villain Generator", page_icon="🌙", layout="centered")
-# Update dev mode in session state for easy access everywhere
 st.session_state['is_dev'] = is_dev
 
 title_text = "🌙 AI Villain Generator"
 if is_dev:
     title_text += " ⚡"
-
 st.title(title_text)
 
+# 🔎 Always render the debug panel in a fixed spot (if dev + info exists)
+render_debug_panel()
 
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
