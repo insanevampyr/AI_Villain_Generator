@@ -29,6 +29,14 @@
 
 ---
 
+## ☕ Support the Project
+
+If this villain generator made you laugh, helped your campaign, or sparked inspiration — consider helping us grow!
+
+[![Buy Me a Coffee](https://img.shields.io/badge/☕%20Buy%20Me%20a%20Coffee%20-%20Support%20the%20Dev-orange?style=for-the-badge)](https://buymeacoffee.com/ai_villain)
+
+---
+
 ## ⚠️ License
 
 This project is **not open source**. All rights reserved by VampyrLee.
