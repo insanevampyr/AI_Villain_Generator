@@ -51,8 +51,14 @@ faction: Group or syndicate name
 origin: A 2-3 sentence origin story
 '''
 
-    # 🧠 Persist dev debug info (this keeps the panel visible)
-    set_debug_info("Villain Details JSON prompt", prompt, max_output_tokens=400)
+    # 🧠 Update panel: cost-only (hide prompt + tokens)
+    set_debug_info(
+        label="Villain Details",
+        prompt=prompt,
+        max_output_tokens=400,
+        show_prompt=False,
+        show_tokens=False,
+    )
 
     try:
         response = openai.chat.completions.create(
@@ -66,8 +72,6 @@ origin: A 2-3 sentence origin story
         )
 
         raw = response.choices[0].message.content.strip()
-
-        # Light JSON cleanup just in case the model adds trailing commas
         raw = re.sub(r",\s*}", "}", raw)
         raw = re.sub(r",\s*]", "]", raw)
         data = json.loads(raw)

@@ -4,9 +4,9 @@ from villain_utils import create_villain_card, save_villain_to_log, STYLE_THEMES
 import os
 import openai
 from dotenv import load_dotenv
-from optimization_utils import render_debug_panel  # ✅ persistent panel
+from optimization_utils import render_debug_panel, seed_debug_panel_if_needed
 
-# Load OpenAI key from .env
+# Load OpenAI key from .env (local) or Secrets (cloud)
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -26,7 +26,8 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔎 Always render the debug panel in a fixed spot (if dev + info exists)
+# 🔧 Debug panel: pre-seed & render once at a fixed spot
+seed_debug_panel_if_needed()
 render_debug_panel()
 
 style = st.selectbox("Choose a style", [
