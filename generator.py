@@ -1,4 +1,3 @@
-
 import openai
 import os
 import streamlit as st
@@ -6,6 +5,8 @@ from dotenv import load_dotenv
 import random
 import json
 import re
+from optimization_utils import dev_debug_display
+
 
 if not st.secrets:
     load_dotenv()
@@ -34,6 +35,9 @@ def generate_villain(tone="dark"):
 Create a unique and original supervillain character profile in a {tone} tone. 
 You must not use shadow/darkness powers or doctor/scientist names.
 {variety_prompt}
+    # 🧠 Dev-only token/cost preview
+    dev_debug_display(prompt, max_output_tokens=400)
+
 
 Return JSON with the following keys:
 
@@ -57,7 +61,7 @@ origin: A 2-3 sentence origin story
                 {"role": "system", "content": "You are a creative villain generator."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=500,
+            max_tokens=400,
             temperature=0.95,
         )
 

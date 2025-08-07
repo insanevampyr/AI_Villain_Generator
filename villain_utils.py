@@ -5,6 +5,8 @@ import textwrap
 import requests
 import streamlit as st
 from openai import OpenAI
+from optimization_utils import dev_debug_display
+
 
 # === Constants ===
 STYLE_THEMES = {
@@ -180,6 +182,7 @@ def generate_visual_prompt(villain):
             temperature=0.8,
             max_tokens=150
         )
+    
         visual_prompt = response.choices[0].message.content.strip()
         st.session_state["visual_prompt"] = visual_prompt
         save_visual_prompt_to_log(villain['name'], visual_prompt)
@@ -190,6 +193,9 @@ def generate_visual_prompt(villain):
         return (
             f"A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
         )
+
+    # 🧠 Dev-only token/cost preview for the visual prompt
+    dev_debug_display(system_prompt + "\n\n" + user_prompt, max_output_tokens=150)
 
 
 def generate_ai_portrait(villain):
