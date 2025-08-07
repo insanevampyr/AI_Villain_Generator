@@ -2,3 +2,12 @@ BACKUP/
 __pycache__/
 .env
 *.pyc
+/villain_cards/
+
+/villain_images/
+
+/villain_logs/
+
+/fonts/ (optional, if you want to shrink repo size—keep if portability matters)
+
+*.pyc, .env, etc.
