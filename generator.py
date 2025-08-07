@@ -14,7 +14,7 @@ if not st.secrets:
 openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
 
 def infer_gender_from_origin(origin):
-    origin_lower = (origin or "").lower()
+    origin_lower = origin.lower()
     if " she " in origin_lower or origin_lower.startswith("she "):
         return "female"
     elif " he " in origin_lower or origin_lower.startswith("he "):
@@ -23,17 +23,16 @@ def infer_gender_from_origin(origin):
 
 def generate_villain(tone="dark", force_new: bool = False):
     """
-    Phase 2: adds a tiny session cache so repeated clicks (with the same prompt) avoid a new API call.
-    Use `force_new=True` to ignore cache and generate fresh output.
+    Phase 2: add a small cache so repeated clicks (same prompt) avoid a new API call.
+    Use `force_new=True` to bypass cache.
     """
     variety_prompt = random.choice([
-        "Avoid using shadow or darkness-based powers.",
-        "Avoid doctors and scientists as characters.",
-        "Do not repeat any names from previous villains.",
         "Use a bizarre or uncommon origin story.",
-        "Give them a name and alias not based on 'dark' or 'shadow'.",
-        "Use a power that sounds impractical but terrifying.",
-        "Make the character totally unpredictable or strange."
+        "Avoid doctor/scientist archetypes.",
+        "Do not repeat any names from previous villains.",
+        "Name/alias must avoid 'dark' or 'shadow'.",
+        "Use a power that seems impractical but terrifying.",
+        "Make the character unpredictable or strange."
     ])
 
     prompt = f'''
@@ -60,27 +59,12 @@ origin: A 2-3 sentence origin story
     if not force_new:
         cached = cache_get("villain_details", prompt_hash)
         if cached:
-            # Cost is $0 for a cache hit and we hide the prompt for details
-            set_debug_info(
-                context="Villain Details",
-                prompt="",
-                max_output_tokens=0,
-                cost_only=True,
-                cost_override=0.0,
-                is_cache_hit=True,
-                show_prompt=False,
-            )
+            # show cost-only line, mark cache hit
+            set_debug_info("Villain Details", prompt, max_output_tokens=400, cost_only=True, is_cache_hit=True)
             return cached
 
-    # Show token/cost estimate for a new call (hide the big JSON prompt per your request)
-    set_debug_info(
-        context="Villain Details",
-        prompt=prompt,
-        max_output_tokens=400,
-        cost_only=False,
-        is_cache_hit=False,
-        show_prompt=False,
-    )
+    # Show price only for details (no prompt in panel)
+    set_debug_info("Villain Details", prompt, max_output_tokens=400, cost_only=True, is_cache_hit=False)
 
     try:
         response = openai.chat.completions.create(
@@ -89,13 +73,11 @@ origin: A 2-3 sentence origin story
                 {"role": "system", "content": "You are a creative villain generator."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400,   # lowered to save cost
+            max_tokens=400,
             temperature=0.95,
         )
 
         raw = response.choices[0].message.content.strip()
-
-        # Light JSON cleanup just in case the model adds trailing commas
         raw = re.sub(r",\s*}", "}", raw)
         raw = re.sub(r",\s*]", "]", raw)
         data = json.loads(raw)
@@ -120,7 +102,6 @@ origin: A 2-3 sentence origin story
             "gender": gender
         }
 
-        # Save to session cache
         cache_set("villain_details", prompt_hash, result)
         return result
 

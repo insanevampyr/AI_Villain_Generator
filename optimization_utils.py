@@ -1,118 +1,112 @@
-# Phase 2 runtime utils: token estimate, persistent debug panel, tiny cache, hashes, DALLE price
-
-import os
+# ✅ Phase 2 utilities: token estimator, persistent debug panel, tiny cache, DALLE price
 import hashlib
+import os
 import streamlit as st
-import tiktoken
 
-# ---- Pricing (USD) ----
+# --- GPT-3.5 pricing (USD per token) ---
 GPT35_PRICING = {"input": 0.0005 / 1000, "output": 0.0015 / 1000}
 MODEL_NAME = "gpt-3.5-turbo"
 
-# Allow override via env var; default to OpenAI public list price
-_DALLE_1024 = os.getenv("DALLE_1024_PRICE", "0.04")
+# --- Flat price for a 1024x1024 DALL·E 3 image (override via env if needed) ---
 def dalle_price() -> float:
     try:
-        return float(_DALLE_1024)
+        return float(os.getenv("IMAGE_PRICE_USD", "0.04"))
     except Exception:
         return 0.04
 
-# ---- Tiny in-session cache ----
-def _cache_root():
-    if "cache" not in st.session_state:
-        st.session_state["cache"] = {}
-    return st.session_state["cache"]
+# --------- Simple token estimator ----------
+def _encoding_guess_len(text: str) -> int:
+    # Lightweight fallback when tiktoken may not be available on Cloud runner
+    # (close enough for a display-only estimate)
+    if not text:
+        return 0
+    # Very rough heuristic: ~4 chars per token
+    return max(1, len(text) // 4)
 
-def cache_get(namespace: str, key: str):
-    return _cache_root().get(namespace, {}).get(key)
+def estimate_token_cost(prompt: str, max_output_tokens: int = 150, model: str = MODEL_NAME):
+    input_tokens = _encoding_guess_len(prompt)
+    cost = (input_tokens * GPT35_PRICING["input"]) + (max_output_tokens * GPT35_PRICING["output"])
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": max_output_tokens,
+        "cost": round(cost, 5),
+        "model": model,
+    }
 
-def cache_set(namespace: str, key: str, value):
-    root = _cache_root()
-    if namespace not in root:
-        root[namespace] = {}
-    root[namespace][key] = value
-
-# ---- Hash helpers ----
-def hash_text(text: str) -> str:
-    return hashlib.md5((text or "").encode("utf-8")).hexdigest()
-
-def hash_villain(villain: dict) -> str:
-    base = f"{villain.get('name','')}|{villain.get('alias','')}|{villain.get('power','')}|{villain.get('origin','')}"
-    return hashlib.md5(base.encode("utf-8")).hexdigest()
-
-# ---- Token estimate ----
-def _estimate_token_cost(prompt: str, max_output_tokens: int = 0, model: str = MODEL_NAME):
-    enc = tiktoken.encoding_for_model(model)
-    input_tokens = len(enc.encode(prompt or ""))
-    # Rough upper bound (we only need an estimate for budgeting)
-    est_cost = (input_tokens * GPT35_PRICING["input"]) + (max_output_tokens * GPT35_PRICING["output"])
-    return input_tokens, max_output_tokens, round(est_cost, 5)
-
-# ---- Debug panel state & rendering ----
+# --------- Debug panel state ---------
 def seed_debug_panel_if_needed():
     if st.session_state.get("is_dev") and "debug_info" not in st.session_state:
         st.session_state["debug_info"] = {
-            "context": "Dev mode active",
+            "label": "Dev mode active",
             "prompt": "",
-            "prompt_tokens": 0,
+            "input_tokens": 0,
             "output_tokens": 0,
-            "estimated_cost": 0.0,
+            "cost": 0.0,
             "cost_only": True,
-            "is_cache_hit": None,
-            "show_prompt": False,
+            "is_cache_hit": False,
         }
 
-def set_debug_info(
-    context: str,
-    prompt: str = "",
-    max_output_tokens: int = 0,
-    *,
-    cost_only: bool = False,
-    cost_override: float | None = None,
-    is_cache_hit: bool | None = None,
-    show_prompt: bool = True,
-):
-    """Persist one compact payload for the dev panel so it renders immediately."""
+def set_debug_info(label: str,
+                   prompt: str,
+                   max_output_tokens: int = 150,
+                   cost_only: bool = False,
+                   cost_override: float | None = None,
+                   is_cache_hit: bool = False):
+    """Save a single debug snapshot to session (shown by render_debug_panel)."""
     if not st.session_state.get("is_dev"):
         return
-
-    if cost_only:
-        est_cost = round(float(cost_override) if cost_override is not None else 0.0, 5)
-        prompt_tokens = 0
-        output_tokens = 0
-    else:
-        prompt_tokens, output_tokens, est_cost = _estimate_token_cost(prompt, max_output_tokens)
-
+    est = estimate_token_cost(prompt, max_output_tokens)
+    if cost_override is not None:
+        est["cost"] = round(float(cost_override), 5)
+        est["input_tokens"] = 0
+        est["output_tokens"] = 0
     st.session_state["debug_info"] = {
-        "context": context,
+        "label": label,
         "prompt": prompt,
-        "prompt_tokens": prompt_tokens,
-        "output_tokens": output_tokens,
-        "estimated_cost": est_cost,
-        "cost_only": cost_only,
-        "is_cache_hit": is_cache_hit,
-        "show_prompt": show_prompt,
+        "input_tokens": est["input_tokens"],
+        "output_tokens": est["output_tokens"],
+        "cost": est["cost"],
+        "cost_only": bool(cost_only),
+        "is_cache_hit": bool(is_cache_hit),
     }
 
 def render_debug_panel():
     if not st.session_state.get("is_dev"):
         return
     info = st.session_state.get("debug_info")
+    if not info:
+        return
+
     with st.expander("🧠 Token Usage Debug (Dev Only)", expanded=False):
-        if not info:
-            st.markdown("_No debug info yet._")
-            return
-        st.markdown(f"**Context:** {info.get('context','')}")
-        # Show/hide prompt according to flag (hide for Villain Details, show for DALL·E)
-        if info.get("show_prompt") and info.get("prompt"):
+        # Title / context
+        st.text(f"Context: {info['label']}{' (cache hit)' if info.get('is_cache_hit') else ''}")
+
+        # For DALL·E we *do* want to show the exact prompt; for details (cost_only) we hide it
+        show_prompt = not info.get("cost_only") or info.get("label") == "DALL·E Image"
+        if show_prompt and info.get("prompt"):
             st.markdown("**Prompt used:**")
             st.code(info["prompt"])
-        # Numbers: either token-based or cost-only
-        if not info.get("cost_only"):
-            st.markdown(f"**Prompt Tokens:** {info.get('prompt_tokens',0)}")
-            st.markdown(f"**Estimated Output Tokens:** {info.get('output_tokens',0)}")
-        st.markdown(f"**Estimated Cost:** ${info.get('estimated_cost',0.0):.5f} USD")
-        # Cache status line
-        hit = info.get("is_cache_hit")
-        if hit is not None:
-            st.caption(f"Cache: {'hit' if hit else 'miss'}")
+
+        # Cost line
+        st.markdown(f"**Estimated Cost:** ${info['cost']:.5f} USD")
+
+        # Token lines (skip for flat-price images)
+        if info.get("input_tokens", 0) or info.get("output_tokens", 0):
+            st.caption(f"Prompt Tokens: {info['input_tokens']}")
+            st.caption(f"Estimated Output Tokens: {info['output_tokens']}")
+
+# --------- Tiny in-memory cache (per session) ----------
+def _cache_bucket(name: str) -> dict:
+    key = f"cache::{name}"
+    if key not in st.session_state:
+        st.session_state[key] = {}
+    return st.session_state[key]
+
+def cache_get(name: str, key: str):
+    return _cache_bucket(name).get(key)
+
+def cache_set(name: str, key: str, value):
+    _cache_bucket(name)[key] = value
+
+def hash_text(s: str) -> str:
+    return hashlib.md5((s or "").encode("utf-8")).hexdigest()

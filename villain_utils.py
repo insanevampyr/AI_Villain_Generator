@@ -6,7 +6,7 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-from optimization_utils import hash_villain, set_debug_info, dalle_price
+from optimization_utils import hash_text as _hash_text, set_debug_info, dalle_price
 
 # === Constants ===
 STYLE_THEMES = {
@@ -62,9 +62,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     except IOError:
         font = title_font = section_font = italic_font = ImageFont.load_default()
 
-    catchphrase = villain.get("catchphrase", "")
-    if not catchphrase or "Expecting value" in catchphrase:
-        catchphrase = "Unknown"
+    catchphrase = villain.get("catchphrase", "") or "Unknown"
     crimes = villain.get("crimes", "Unknown")
     if isinstance(crimes, str):
         crimes = [crimes]
@@ -138,11 +136,14 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image.save(outpath)
     return outpath
 
+def _villain_hash(v: dict) -> str:
+    base = f"{v.get('name','')}|{v.get('alias','')}|{v.get('power','')}|{v.get('origin','')}"
+    return _hash_text(base)
+
 def generate_visual_prompt(villain):
     client = OpenAI()
 
-    # --- Visual Gender Description ---
-    gender_hint = (villain.get("gender", "unknown") or "").lower()
+    gender_hint = (villain.get("gender") or "unknown").lower()
     if "female" in gender_hint:
         gender_phrase = "feminine, graceful energy"
     elif "male" in gender_hint:
@@ -178,9 +179,8 @@ def generate_visual_prompt(villain):
         )
         visual_prompt = response.choices[0].message.content.strip()
         st.session_state["visual_prompt"] = visual_prompt
-        save_visual_prompt_to_log(villain['name'], visual_prompt)
+        save_visual_prompt_to_log(villain.get('name', 'unknown'), visual_prompt)
         return visual_prompt
-
     except Exception as e:
         print(f"[Error generating visual prompt]: {e}")
         return "A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
@@ -189,20 +189,18 @@ def generate_ai_portrait(villain):
     client = OpenAI()
     visual_prompt = generate_visual_prompt(villain)
 
-    # Show exact prompt + flat DALLE price in the dev panel
+    # ✅ Debug panel: show DALLE prompt + flat image price
     set_debug_info(
-        context="DALL·E Image",
+        label="DALL·E Image",
         prompt=visual_prompt,
         max_output_tokens=0,
         cost_only=True,
         cost_override=dalle_price(),
-        is_cache_hit=None,
-        show_prompt=True,
     )
 
     # === Disk cache for image ===
     os.makedirs(IMAGE_FOLDER, exist_ok=True)
-    vid = hash_villain(villain)
+    vid = _villain_hash(villain)
     img_path = os.path.join(IMAGE_FOLDER, f"ai_portrait_{vid}.png")
     if os.path.exists(img_path):
         return img_path
