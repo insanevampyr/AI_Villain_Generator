@@ -26,9 +26,8 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔧 Debug panel: pre-seed & render once at a fixed spot
+# 🔧 Debug panel: pre-seed (so it appears immediately in godmode)
 seed_debug_panel_if_needed()
-render_debug_panel()
 
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
@@ -73,6 +72,8 @@ if st.button("Generate Villain Details"):
     st.session_state.ai_image = None
     st.session_state.card_file = None
     save_villain_to_log(st.session_state.villain)
+    # ✅ Force a rerun so the debug panel shows the latest info immediately
+    st.rerun()
 
 # Display villain & image preview
 if st.session_state.villain:
@@ -82,6 +83,7 @@ if st.session_state.villain:
     if st.button("🎨 AI Generate Villain Image"):
         if not is_dev and st.session_state.free_ai_images_used >= 1:
             st.error("🛑 You’ve used your free AI portrait! Support us to unlock more.")
+            st.rerun()  # keep panel in sync even on error
         else:
             with st.spinner("Summoning villain through the multiverse..."):
                 ai_path = generate_ai_portrait(villain)
@@ -92,8 +94,10 @@ if st.session_state.villain:
                     if not is_dev:
                         st.session_state.free_ai_images_used += 1
                     st.success("AI-generated portrait added!")
+                    st.rerun()  # ✅ refresh debug panel immediately
                 else:
                     st.error("Something went wrong during AI generation.")
+                    st.rerun()
 
     image_file = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
 
@@ -131,3 +135,6 @@ if st.session_state.villain:
         )
     else:
         st.error("Villain card could not be generated. Please try again.")
+
+# ✅ Render the debug panel once, at the very end (shows latest state for this run)
+render_debug_panel()
