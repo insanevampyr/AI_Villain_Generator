@@ -9,6 +9,15 @@ from dotenv import load_dotenv
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# === AI Generation Limit (Phase 1) ===
+DEV_KEY = "godmode"
+user_key = st.text_input("Enter dev key (optional)", type="password")
+is_dev = user_key == DEV_KEY
+
+if "free_ai_images_used" not in st.session_state:
+    st.session_state.free_ai_images_used = 0
+
+
 st.set_page_config(page_title="AI Villain Generator", page_icon="🌙", layout="centered")
 st.title("🌙 AI Villain Generator")
 
@@ -49,7 +58,7 @@ if "card_file" not in st.session_state:
     st.session_state.card_file = None
 
 # Generate villain button
-if st.button("Generate Villain"):
+if st.button("Generate Villain Details"):
     st.session_state.villain = generate_villain(tone=style)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
@@ -61,16 +70,21 @@ if st.session_state.villain:
     villain = st.session_state.villain
 
     # AI Generation Trigger
-    if st.button("🎨 Generate with AI"):
-        with st.spinner("Summoning villain through the multiverse..."):
-            ai_path = generate_ai_portrait(villain)
-            if ai_path and os.path.exists(ai_path):
-                st.session_state.ai_image = ai_path
-                st.session_state.villain_image = ai_path  # This ensures UI refresh and card is rebuilt
-                st.session_state.card_file = create_villain_card(villain, image_file=ai_path, theme_name=style)
-                st.success("AI-generated portrait added!")
-            else:
-                st.error("Something went wrong during AI generation.")
+    if st.button("🎨 AI Generate Villain Image"):
+        if not is_dev and st.session_state.free_ai_images_used >= 1:
+            st.error("🛑 You’ve used your free AI portrait! Support us to unlock more.")
+        else:
+            with st.spinner("Summoning villain through the multiverse..."):
+                ai_path = generate_ai_portrait(villain)
+                if ai_path and os.path.exists(ai_path):
+                    st.session_state.ai_image = ai_path
+                    st.session_state.villain_image = ai_path
+                    st.session_state.card_file = create_villain_card(villain, image_file=ai_path, theme_name=style)
+                    if not is_dev:
+                        st.session_state.free_ai_images_used += 1
+                    st.success("AI-generated portrait added!")
+                else:
+                    st.error("Something went wrong during AI generation.")
 
     image_file = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
 
