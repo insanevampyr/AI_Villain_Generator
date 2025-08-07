@@ -138,12 +138,11 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image.save(outpath)
     return outpath
 
-
 def generate_visual_prompt(villain):
     client = OpenAI()
 
     # --- Visual Gender Description ---
-    gender_hint = villain.get("gender", "unknown").lower()
+    gender_hint = (villain.get("gender", "unknown") or "").lower()
     if "female" in gender_hint:
         gender_phrase = "feminine, graceful energy"
     elif "male" in gender_hint:
@@ -153,14 +152,12 @@ def generate_visual_prompt(villain):
     else:
         gender_phrase = "mysterious energy"
 
-    # --- System Prompt ---
     system_prompt = (
         "Convert villain data into a DALL·E 3 visual prompt. Describe ONLY appearance: color, mood, style, pose, clothing, atmosphere. "
         "NEVER include names, logos, words, numbers, posters, or text. Imply gender with adjectives (masculine/feminine/androgynous) or visuals. "
         "1–2 cinematic sentences. Avoid anything that could render as written text."
     )
 
-    # --- User Prompt ---
     user_prompt = (
         f"{gender_phrase}. "
         f"Origin: {villain.get('origin', '')} "
@@ -188,19 +185,19 @@ def generate_visual_prompt(villain):
         print(f"[Error generating visual prompt]: {e}")
         return "A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
 
-
 def generate_ai_portrait(villain):
     client = OpenAI()
     visual_prompt = generate_visual_prompt(villain)
 
-    # ✅ Update panel: show exact DALLE prompt + cost only (no tokens)
+    # Show exact prompt + flat DALLE price in the dev panel
     set_debug_info(
-        label="DALL·E Image",
+        context="DALL·E Image",
         prompt=visual_prompt,
         max_output_tokens=0,
+        cost_only=True,
+        cost_override=dalle_price(),
+        is_cache_hit=None,
         show_prompt=True,
-        show_tokens=False,
-        cost_override=dalle_price(),  # 1024×1024 image price
     )
 
     # === Disk cache for image ===
@@ -225,7 +222,6 @@ def generate_ai_portrait(villain):
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None
-
 
 __all__ = [
     "create_villain_card",
