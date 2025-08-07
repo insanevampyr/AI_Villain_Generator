@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 import random
 import json
 import re
-from optimization_utils import dev_debug_display
+from optimization_utils import dev_debug_display  # ✅ dev token/cost panel
 
-
+# Load key from st.secrets first, fallback to .env locally
 if not st.secrets:
     load_dotenv()
 openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
@@ -35,9 +35,6 @@ def generate_villain(tone="dark"):
 Create a unique and original supervillain character profile in a {tone} tone. 
 You must not use shadow/darkness powers or doctor/scientist names.
 {variety_prompt}
-    # 🧠 Dev-only token/cost preview
-    dev_debug_display(prompt, max_output_tokens=400)
-
 
 Return JSON with the following keys:
 
@@ -54,6 +51,9 @@ faction: Group or syndicate name
 origin: A 2-3 sentence origin story
 '''
 
+    # 🧠 Dev-only token/cost preview (shows only when dev key == godmode)
+    dev_debug_display(prompt, max_output_tokens=400)
+
     try:
         response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -61,11 +61,13 @@ origin: A 2-3 sentence origin story
                 {"role": "system", "content": "You are a creative villain generator."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400,
+            max_tokens=400,   # lowered from 500 to save cost
             temperature=0.95,
         )
 
         raw = response.choices[0].message.content.strip()
+
+        # Light JSON cleanup just in case the model adds trailing commas
         raw = re.sub(r",\s*}", "}", raw)
         raw = re.sub(r",\s*]", "]", raw)
         data = json.loads(raw)
