@@ -23,16 +23,15 @@ def infer_gender_from_origin(origin):
 
 def generate_villain(tone="dark", force_new: bool = False):
     """
-    Phase 2: add a small cache so repeated clicks (same prompt) avoid a new API call.
-    Use `force_new=True` to bypass cache.
+    Phase 2: tiny prompt-hash cache + cost-only debug panel (no prompt text).
     """
     variety_prompt = random.choice([
         "Use a bizarre or uncommon origin story.",
-        "Avoid doctor/scientist archetypes.",
-        "Do not repeat any names from previous villains.",
-        "Name/alias must avoid 'dark' or 'shadow'.",
-        "Use a power that seems impractical but terrifying.",
-        "Make the character unpredictable or strange."
+        "Give them a name and alias not based on 'dark' or 'shadow'.",
+        "Use a power that sounds impractical but terrifying.",
+        "Make the character totally unpredictable or strange.",
+        "Avoid doctors and scientists as characters.",
+        "Avoid shadow/darkness-based powers.",
     ])
 
     prompt = f'''
@@ -54,17 +53,18 @@ threat_level: One of [Low, Moderate, High, Extreme]
 faction: Group or syndicate name
 origin: A 2-3 sentence origin story
 '''
-    # --- Cache check (prompt-based) ---
-    prompt_hash = hash_text(prompt)
+
+    # Cache check
+    pkey = hash_text(prompt)
     if not force_new:
-        cached = cache_get("villain_details", prompt_hash)
+        cached = cache_get("villain_details", pkey)
         if cached:
-            # show cost-only line, mark cache hit
-            set_debug_info("Villain Details", prompt, max_output_tokens=400, cost_only=True, is_cache_hit=True)
+            # Cost-only panel; no prompt content shown
+            set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=400, cost_only=True, is_cache_hit=True)
             return cached
 
-    # Show price only for details (no prompt in panel)
-    set_debug_info("Villain Details", prompt, max_output_tokens=400, cost_only=True, is_cache_hit=False)
+    # Show cost only (no prompt box in panel)
+    set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=400, cost_only=True, is_cache_hit=False)
 
     try:
         response = openai.chat.completions.create(
@@ -102,7 +102,7 @@ origin: A 2-3 sentence origin story
             "gender": gender
         }
 
-        cache_set("villain_details", prompt_hash, result)
+        cache_set("villain_details", pkey, result)
         return result
 
     except Exception as e:
