@@ -1,3 +1,4 @@
+# villain_utils.py
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 import os
 import datetime
@@ -6,7 +7,7 @@ import requests
 import streamlit as st
 from openai import OpenAI
 
-from optimization_utils import hash_text, set_debug_info, dalle_price
+from optimization_utils import hash_villain, set_debug_info, dalle_price
 
 # === Constants ===
 STYLE_THEMES = {
@@ -138,10 +139,12 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image.save(outpath)
     return outpath
 
+
 def generate_visual_prompt(villain):
     client = OpenAI()
 
-    gender_hint = (villain.get("gender") or "unknown").lower()
+    # --- Visual Gender Description ---
+    gender_hint = villain.get("gender", "unknown").lower()
     if "female" in gender_hint:
         gender_phrase = "feminine, graceful energy"
     elif "male" in gender_hint:
@@ -179,15 +182,17 @@ def generate_visual_prompt(villain):
         st.session_state["visual_prompt"] = visual_prompt
         save_visual_prompt_to_log(villain['name'], visual_prompt)
         return visual_prompt
+
     except Exception as e:
         print(f"[Error generating visual prompt]: {e}")
         return "A dramatic, wordless villain portrait with cinematic lighting and energy. No signs, words, or logos in view."
+
 
 def generate_ai_portrait(villain):
     client = OpenAI()
     visual_prompt = generate_visual_prompt(villain)
 
-    # ✅ Update dev panel: show visual prompt + flat image price
+    # Show cost-only DALLE panel, but still display the exact image prompt
     set_debug_info(
         context="DALL·E Image",
         prompt=visual_prompt,
@@ -196,9 +201,9 @@ def generate_ai_portrait(villain):
         cost_override=dalle_price(),
     )
 
-    # Disk cache for image
+    # === Disk cache for image ===
     os.makedirs(IMAGE_FOLDER, exist_ok=True)
-    vid = hash_text((villain.get("name","")) + "|" + (villain.get("alias","")) + "|" + (villain.get("power","")) + "|" + (villain.get("origin","")))
+    vid = hash_villain(villain)
     img_path = os.path.join(IMAGE_FOLDER, f"ai_portrait_{vid}.png")
     if os.path.exists(img_path):
         return img_path
@@ -218,6 +223,7 @@ def generate_ai_portrait(villain):
     except Exception as e:
         print(f"Error generating AI portrait: {e}")
         return None
+
 
 __all__ = [
     "create_villain_card",

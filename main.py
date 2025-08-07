@@ -1,3 +1,4 @@
+# main.py
 import streamlit as st
 from generator import generate_villain
 from villain_utils import create_villain_card, save_villain_to_log, STYLE_THEMES, generate_ai_portrait
@@ -26,8 +27,9 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔧 Debug panel: pre-seed (so it appears immediately in godmode)
+# 🔧 Debug panel: pre-seed & render once at a fixed spot
 seed_debug_panel_if_needed()
+render_debug_panel()
 
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
@@ -64,21 +66,15 @@ if "ai_image" not in st.session_state:
     st.session_state.ai_image = None
 if "card_file" not in st.session_state:
     st.session_state.card_file = None
-if "force_new" not in st.session_state:
-    st.session_state.force_new = False
-
-# Small toggle to skip cache (so you can still get a fresh villain)
-force_new = st.checkbox("♻️ New (ignore cache)", value=False, key="force_new")
 
 # Generate villain button
 if st.button("Generate Villain Details"):
-    st.session_state.villain = generate_villain(tone=style, force_new=force_new)
+    st.session_state.villain = generate_villain(tone=style)  # debug panel shows cost only (no prompt)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
     save_villain_to_log(st.session_state.villain)
-    # ✅ refresh debug panel immediately
-    st.rerun()
+    render_debug_panel()  # refresh panel immediately
 
 # Display villain & image preview
 if st.session_state.villain:
@@ -88,10 +84,9 @@ if st.session_state.villain:
     if st.button("🎨 AI Generate Villain Image"):
         if not is_dev and st.session_state.free_ai_images_used >= 1:
             st.error("🛑 You’ve used your free AI portrait! Support us to unlock more.")
-            st.rerun()
         else:
             with st.spinner("Summoning villain through the multiverse..."):
-                ai_path = generate_ai_portrait(villain)
+                ai_path = generate_ai_portrait(villain)  # debug panel will show DALLE prompt + flat cost
                 if ai_path and os.path.exists(ai_path):
                     st.session_state.ai_image = ai_path
                     st.session_state.villain_image = ai_path
@@ -99,10 +94,9 @@ if st.session_state.villain:
                     if not is_dev:
                         st.session_state.free_ai_images_used += 1
                     st.success("AI-generated portrait added!")
-                    st.rerun()
                 else:
                     st.error("Something went wrong during AI generation.")
-                    st.rerun()
+            render_debug_panel()  # refresh panel immediately
 
     image_file = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
 
@@ -119,7 +113,7 @@ if st.session_state.villain:
         st.markdown(f"**Lair:** {villain['lair']}")
         st.markdown(f"**Catchphrase:** *{villain['catchphrase']}*")
         st.markdown("**Crimes:**")
-        for crime in villain.get("crimes", [] if villain.get("crimes") is None else villain["crimes"]):
+        for crime in villain["crimes"]:
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
         st.markdown(f"**Threat Level:** {villain['threat_level']}")
         st.markdown(f"**Faction:** {villain['faction']}")
@@ -140,7 +134,3 @@ if st.session_state.villain:
         )
     else:
         st.error("Villain card could not be generated. Please try again.")
-
-# ✅ Render debug panel once at the bottom
-from optimization_utils import render_debug_panel as _rdp  # avoid accidental shadowing
-_rdp()
