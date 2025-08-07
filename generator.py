@@ -5,7 +5,8 @@ from dotenv import load_dotenv
 import random
 import json
 import re
-from optimization_utils import set_debug_info  # ✅ persistent debug
+
+from optimization_utils import set_debug_info, cache_get, cache_set, hash_text
 
 # Load key from st.secrets first, fallback to .env locally
 if not st.secrets:
@@ -20,7 +21,11 @@ def infer_gender_from_origin(origin):
         return "male"
     return None
 
-def generate_villain(tone="dark"):
+def generate_villain(tone="dark", force_new: bool = False):
+    """
+    Phase 2: Adds a tiny cache so repeated clicks (same prompt) avoid a new API call.
+    Use `force_new=True` to ignore cache and generate a fresh one.
+    """
     variety_prompt = random.choice([
         "Avoid using shadow or darkness-based powers.",
         "Avoid doctors and scientists as characters.",
@@ -50,15 +55,16 @@ threat_level: One of [Low, Moderate, High, Extreme]
 faction: Group or syndicate name
 origin: A 2-3 sentence origin story
 '''
+    # --- Cache check (prompt-based) ---
+    prompt_hash = hash_text(prompt)
+    if not force_new:
+        cached = cache_get("villain_details", prompt_hash)
+        if cached:
+            set_debug_info("Villain Details (cache HIT)", prompt, max_output_tokens=400, is_cache_hit=True)
+            return cached
 
-    # 🧠 Update panel: cost-only (hide prompt + tokens)
-    set_debug_info(
-        label="Villain Details",
-        prompt=prompt,
-        max_output_tokens=400,
-        show_prompt=False,
-        show_tokens=False,
-    )
+    # 🧠 Persist dev debug info for this call (token estimate)
+    set_debug_info("Villain Details", prompt, max_output_tokens=400, is_cache_hit=False)
 
     try:
         response = openai.chat.completions.create(
@@ -67,11 +73,13 @@ origin: A 2-3 sentence origin story
                 {"role": "system", "content": "You are a creative villain generator."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400,   # lowered from 500 to save cost
+            max_tokens=400,   # lowered to save cost
             temperature=0.95,
         )
 
         raw = response.choices[0].message.content.strip()
+
+        # Light JSON cleanup just in case the model adds trailing commas
         raw = re.sub(r",\s*}", "}", raw)
         raw = re.sub(r",\s*]", "]", raw)
         data = json.loads(raw)
@@ -81,7 +89,7 @@ origin: A 2-3 sentence origin story
         if gender is None:
             gender = random.choice(["male", "female", "nonbinary"])
 
-        return {
+        result = {
             "name": data.get("name", "Unknown"),
             "alias": data.get("alias", "Unknown"),
             "power": data.get("power", "Unknown"),
@@ -95,6 +103,11 @@ origin: A 2-3 sentence origin story
             "origin": origin,
             "gender": gender
         }
+
+        # save to cache
+        cache_set("villain_details", prompt_hash, result)
+        return result
+
     except Exception as e:
         return {
             "name": "Error",

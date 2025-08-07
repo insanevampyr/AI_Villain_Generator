@@ -64,15 +64,20 @@ if "ai_image" not in st.session_state:
     st.session_state.ai_image = None
 if "card_file" not in st.session_state:
     st.session_state.card_file = None
+if "force_new" not in st.session_state:
+    st.session_state.force_new = False
+
+# Small toggle to skip cache (so you can still get a fresh villain)
+force_new = st.checkbox("♻️ New (ignore cache)", value=False, key="force_new")
 
 # Generate villain button
 if st.button("Generate Villain Details"):
-    st.session_state.villain = generate_villain(tone=style)
+    st.session_state.villain = generate_villain(tone=style, force_new=force_new)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
     save_villain_to_log(st.session_state.villain)
-    # ✅ Force a rerun so the debug panel shows the latest info immediately
+    # ✅ refresh debug panel immediately
     st.rerun()
 
 # Display villain & image preview
@@ -83,7 +88,7 @@ if st.session_state.villain:
     if st.button("🎨 AI Generate Villain Image"):
         if not is_dev and st.session_state.free_ai_images_used >= 1:
             st.error("🛑 You’ve used your free AI portrait! Support us to unlock more.")
-            st.rerun()  # keep panel in sync even on error
+            st.rerun()
         else:
             with st.spinner("Summoning villain through the multiverse..."):
                 ai_path = generate_ai_portrait(villain)
@@ -94,7 +99,7 @@ if st.session_state.villain:
                     if not is_dev:
                         st.session_state.free_ai_images_used += 1
                     st.success("AI-generated portrait added!")
-                    st.rerun()  # ✅ refresh debug panel immediately
+                    st.rerun()
                 else:
                     st.error("Something went wrong during AI generation.")
                     st.rerun()
@@ -114,7 +119,7 @@ if st.session_state.villain:
         st.markdown(f"**Lair:** {villain['lair']}")
         st.markdown(f"**Catchphrase:** *{villain['catchphrase']}*")
         st.markdown("**Crimes:**")
-        for crime in villain["crimes"]:
+        for crime in villain.get("crimes", [] if villain.get("crimes") is None else villain["crimes"]):
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
         st.markdown(f"**Threat Level:** {villain['threat_level']}")
         st.markdown(f"**Faction:** {villain['faction']}")
@@ -136,5 +141,6 @@ if st.session_state.villain:
     else:
         st.error("Villain card could not be generated. Please try again.")
 
-# ✅ Render the debug panel once, at the very end (shows latest state for this run)
-render_debug_panel()
+# ✅ Render debug panel once at the bottom
+from optimization_utils import render_debug_panel as _rdp  # avoid accidental shadowing
+_rdp()
