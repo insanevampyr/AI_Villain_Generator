@@ -80,6 +80,14 @@ if st.button("Generate Villain Details"):
     # ✅ refresh debug panel immediately
     st.rerun()
 
+# Helper to bust cache by reading image bytes
+def _image_bytes(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
 # Display villain & image preview
 if st.session_state.villain:
     villain = st.session_state.villain
@@ -104,12 +112,21 @@ if st.session_state.villain:
                     st.error("Something went wrong during AI generation.")
                     st.rerun()
 
-    image_file = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
+    # Priority: fresh AI image → uploaded → default
+    if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
+        display_source = _image_bytes(st.session_state.ai_image)
+    elif st.session_state.villain_image is not None:
+        display_source = st.session_state.villain_image
+    else:
+        display_source = _image_bytes("assets/AI_Villain_logo.png")
 
     col2, col1 = st.columns([2, 1])
 
     with col1:
-        st.image(image_file, caption="Current Portrait", width=200)
+        if display_source:
+            st.image(display_source, caption="Current Portrait", width=200)
+        else:
+            st.write("_No image available._")
 
     with col2:
         st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
@@ -118,16 +135,22 @@ if st.session_state.villain:
         st.markdown(f"**Nemesis:** {villain['nemesis']}")
         st.markdown(f"**Lair:** {villain['lair']}")
         st.markdown(f"**Catchphrase:** *{villain['catchphrase']}*")
+
+        crimes = villain.get("crimes", [])
+        if isinstance(crimes, str):
+            crimes = [crimes] if crimes else []
         st.markdown("**Crimes:**")
-        for crime in villain.get("crimes", [] if villain.get("crimes") is None else villain["crimes"]):
+        for crime in crimes:
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
+
         st.markdown(f"**Threat Level:** {villain['threat_level']}")
         st.markdown(f"**Faction:** {villain['faction']}")
         st.markdown(f"**Origin:** {villain['origin']}")
 
     # Always re-create card from freshest image
+    image_for_card = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
     if st.session_state.card_file is None:
-        st.session_state.card_file = create_villain_card(villain, image_file=image_file, theme_name=style)
+        st.session_state.card_file = create_villain_card(villain, image_file=image_for_card, theme_name=style)
 
     if st.session_state.card_file and os.path.exists(st.session_state.card_file):
         with open(st.session_state.card_file, "rb") as f:
