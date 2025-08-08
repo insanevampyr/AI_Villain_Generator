@@ -97,16 +97,17 @@ if st.session_state.villain:
         if not is_dev and st.session_state.free_ai_images_used >= 1:
             st.markdown(
                 """
-                <div style="padding: 0.5em; background-color: #fdd; border-radius: 5px; display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size: 1.1em;">🛑 You’ve already used your free AI portrait!</span>
+                <div style="padding: 0.5em; background-color: #2b2b2b; border-radius: 5px; display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 1.1em; color: #ffffff;">🛑 You’ve already used your free AI portrait!</span>
                     <a href="https://www.buymeacoffee.com/vampyrlee" target="_blank">
                         <img src="https://img.buymeacoffee.com/button-api/?text=Support%20Us&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="45">
                     </a>
                 </div>
                 """,
-                unsafe_allow_html=True
+             unsafe_allow_html=True
             )
             st.stop()
+
 
 
         else:
