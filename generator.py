@@ -64,7 +64,7 @@ origin: A 2-3 sentence origin story
             return cached
 
     # 🧠 Persist dev debug info for this call (token estimate)
-    set_debug_info("Villain Details", prompt, max_output_tokens=400, is_cache_hit=False)
+    set_debug_info(context="Villain Details", prompt=None, max_output_tokens=400, cost_only=True, is_cache_hit=False)
 
     try:
         response = openai.chat.completions.create(

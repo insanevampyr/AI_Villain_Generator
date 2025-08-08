@@ -1,131 +1,68 @@
-# ✅ Phase 2 Efficiency Utils — debug panel + simple JSON cache (with back-compat)
-import os
-import json
-import hashlib
-from dataclasses import dataclass
-import tiktoken
 import streamlit as st
+import tiktoken
+import math
 
-# ---- Pricing (USD) ----
-GPT35_PRICING = {"input": 0.0005 / 1000, "output": 0.0015 / 1000}
-IMAGE_PRICE_USD = float(os.getenv("IMAGE_PRICE_USD", "0.04000"))  # DALL·E 1024x1024 default
+# Default OpenAI pricing per 1K tokens (USD)
+PRICES = {
+    "gpt-3.5-turbo": 0.0005,   # input
+    "gpt-3.5-turbo-out": 0.0015,  # output
+}
 
-MODEL_NAME = "gpt-3.5-turbo"
-CACHE_DIR = "cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
+# DALLE pricing (flat per image)
+DALLE_PRICE_USD = 0.04
 
-# ---------------- Token Estimator ----------------
-def _estimate_token_cost(prompt: str, max_output_tokens: int = 150, model: str = MODEL_NAME):
-    enc = tiktoken.encoding_for_model(model)
-    input_tokens = len(enc.encode(prompt))
-    total_cost = (input_tokens * GPT35_PRICING["input"]) + (max_output_tokens * GPT35_PRICING["output"])
-    return input_tokens, max_output_tokens, round(total_cost, 5)
+def dalle_price():
+    return DALLE_PRICE_USD
 
-# ---------------- Hash helpers ----------------
-def hash_text(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()
-
-# Back-compat for older modules (villain_utils expects these)
-def hash_villain(villain: dict) -> str:
-    base = f"{villain.get('name','')}|{villain.get('alias','')}|{villain.get('power','')}|{villain.get('origin','')}"
-    return hashlib.md5(base.encode("utf-8")).hexdigest()
-
-def dalle_price() -> float:
-    return IMAGE_PRICE_USD
-
-# ---------------- JSON Cache (very small + simple) ----------------
-def _cache_path(namespace: str) -> str:
-    safe = "".join(c for c in namespace if c.isalnum() or c in ("_", "-"))
-    return os.path.join(CACHE_DIR, f"{safe}.json")
-
-def cache_get(namespace: str, key: str):
-    path = _cache_path(namespace)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            db = json.load(f)
-        return db.get(key)
-    except Exception:
-        return None
-
-def cache_set(namespace: str, key: str, value):
-    path = _cache_path(namespace)
-    try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                db = json.load(f)
-        else:
-            db = {}
-        db[key] = value
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(db, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[cache_set:{namespace}] {e}")
-
-# ---------------- Debug panel (persistent across reruns) ----------------
-@dataclass
-class DebugInfo:
-    context: str = "Dev mode active"
-    prompt: str | None = None
-    max_output_tokens: int | None = None
-    model: str = MODEL_NAME
-    cost_only: bool = False
-    is_cache_hit: bool = False
-    image_price: float = IMAGE_PRICE_USD
+def num_tokens_from_string(string: str, encoding_name: str = "cl100k_base") -> int:
+    """Count tokens in a string for cost estimation."""
+    encoding = tiktoken.get_encoding(encoding_name)
+    return len(encoding.encode(string))
 
 def seed_debug_panel_if_needed():
-    if not st.session_state.get("is_dev"):
-        return
-    if "debug_info" not in st.session_state:
-        st.session_state["debug_info"] = DebugInfo().__dict__
+    """Ensure the debug panel session state exists so it renders immediately."""
+    if "dev_debug_info" not in st.session_state:
+        st.session_state.dev_debug_info = []
 
-def set_debug_info(
-    context: str,
-    prompt: str | None,
-    max_output_tokens: int | None = None,
-    cost_only: bool = False,
-    is_cache_hit: bool = False,
-):
-    if not st.session_state.get("is_dev"):
-        return
-    info = DebugInfo(
-        context=context,
-        prompt=prompt,
-        max_output_tokens=max_output_tokens,
-        cost_only=cost_only,
-        is_cache_hit=is_cache_hit,
-    ).__dict__
-    if prompt and max_output_tokens and not cost_only:
-        in_tok, out_tok, cost = _estimate_token_cost(prompt, max_output_tokens)
-        info["prompt_tokens"] = in_tok
-        info["estimated_output_tokens"] = out_tok
-        info["estimated_cost"] = cost
-    elif cost_only:
-        info["estimated_cost"] = IMAGE_PRICE_USD
-    st.session_state["debug_info"] = info
+def set_debug_info(label, prompt=None, max_output_tokens=None, cost_only=False, cost_override=None):
+    """
+    Store debug info for display in dev mode.
+    - cost_only=True → Only store cost + optional cost_override
+    - cost_override → Directly set cost (e.g., DALL·E price)
+    """
+    info_entry = {"label": label}
+
+    if cost_only:
+        # Show only override cost if given, else default 0
+        cost_val = cost_override if cost_override is not None else 0.0
+        info_entry["cost"] = f"${cost_val:.4f} USD"
+        if prompt:
+            info_entry["prompt"] = prompt
+    else:
+        # Full token + cost breakdown
+        tokens = num_tokens_from_string(prompt) if prompt else 0
+        input_cost = (tokens / 1000) * PRICES["gpt-3.5-turbo"]
+        output_cost = ((max_output_tokens or 0) / 1000) * PRICES["gpt-3.5-turbo-out"]
+        total_cost = cost_override if cost_override is not None else input_cost + output_cost
+
+        info_entry.update({
+            "tokens": tokens,
+            "max_output_tokens": max_output_tokens or 0,
+            "cost": f"${total_cost:.4f} USD",
+            "prompt": prompt or ""
+        })
+
+    st.session_state.dev_debug_info.append(info_entry)
 
 def render_debug_panel():
-    if not st.session_state.get("is_dev"):
-        return
-    info = st.session_state.get("debug_info")
-    if not info:
-        return
-    with st.expander("🧠 Token Usage Debug (Dev Only)", expanded=True):
-        st.markdown(f"**Context:** {info.get('context','Dev mode active')}")
-        if info.get("prompt"):
-            st.markdown("**Prompt used:**")
-            st.code(info["prompt"])
-        if info.get("cost_only"):
-            st.markdown(f"**Estimated Cost:** ${info.get('estimated_cost', IMAGE_PRICE_USD):.5f} USD")
-        else:
-            if "prompt_tokens" in info:
-                st.markdown(f"**Prompt Tokens:** {info['prompt_tokens']}")
-            if "estimated_output_tokens" in info:
-                st.markdown(f"**Estimated Output Tokens:** {info['estimated_output_tokens']}")
-            if "estimated_cost" in info:
-                st.markdown(f"**Estimated Cost:** ${info['estimated_cost']:.5f} USD")
-        if info.get("is_cache_hit"):
-            st.info("Cache: **HIT** (no API call)")
-        else:
-            st.caption("Cache: miss")
+    """Render the debug panel in the UI if dev mode is active."""
+    if st.session_state.get("is_dev") and st.session_state.get("dev_debug_info"):
+        with st.expander("🛠 Token Usage Debug"):
+            for entry in st.session_state.dev_debug_info:
+                st.markdown(f"**{entry['label']}**")
+                if "tokens" in entry:
+                    st.markdown(f"- Tokens: {entry['tokens']}")
+                    st.markdown(f"- Max Output Tokens: {entry['max_output_tokens']}")
+                st.markdown(f"- Cost: {entry['cost']}")
+                if entry.get("prompt"):
+                    st.markdown(f"```{entry['prompt']}```")

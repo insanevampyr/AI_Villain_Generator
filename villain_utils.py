@@ -192,7 +192,7 @@ def generate_ai_portrait(villain):
 
     # ✅ Updated to cost_only=True
     set_debug_info(
-        label="DALL·E Image",
+        context="DALL·E Image",
         prompt=visual_prompt,
         cost_only=True,
         cost_override=dalle_price()
