@@ -99,14 +99,15 @@ if st.session_state.villain:
                 """
                 <div style="padding: 0.5em; background-color: #2b2b2b; border-radius: 5px; display: flex; align-items: center; justify-content: space-between;">
                     <span style="font-size: 1.1em; color: #ffffff;">🛑 You’ve already used your free AI portrait!</span>
-                    <a href="https://www.buymeacoffee.com/vampyrlee" target="_blank">
+                    <a href="https://buymeacoffee.com/ai_villain" target="_blank">
                         <img src="https://img.buymeacoffee.com/button-api/?text=Support%20Us&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="45">
                     </a>
                 </div>
                 """,
-             unsafe_allow_html=True
+                unsafe_allow_html=True
             )
-            st.stop()
+            # do NOT st.stop() or st.rerun() so the existing villain + image keep rendering
+
 
 
 
