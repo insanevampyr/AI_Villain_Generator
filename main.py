@@ -95,8 +95,15 @@ if st.session_state.villain:
     # AI Generation Trigger
     if st.button("🎨 AI Generate Villain Image"):
         if not is_dev and st.session_state.free_ai_images_used >= 1:
-            st.error("🛑 You’ve used your free AI portrait! Support us to unlock more.")
-            st.rerun()
+            st.error("🛑 You have already used your free AI portrait!")
+            st.markdown(
+                """
+                [![☕ Support on BuyMeACoffee](https://img.shields.io/badge/☕_Buy%20Me%20a%20Coffee-yellow)](https://www.buymeacoffee.com/vampyrlee)
+                """,
+                unsafe_allow_html=True
+            )
+            st.stop()
+
         else:
             with st.spinner("Summoning villain through the multiverse..."):
                 ai_path = generate_ai_portrait(villain)
