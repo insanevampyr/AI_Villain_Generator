@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import random
 import json
 import re
+import time
 
 from optimization_utils import set_debug_info, cache_get, cache_set, hash_text
 
@@ -21,10 +22,61 @@ def infer_gender_from_origin(origin):
         return "male"
     return None
 
+def _chat_with_retry(messages, max_tokens=400, temperature=0.95, attempts=2):
+    """Minimal retry for transient failures (e.g., 429)."""
+    last_err = None
+    for i in range(attempts):
+        try:
+            return openai.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except Exception as e:
+            last_err = e
+            # brief backoff
+            time.sleep(1.0 + i * 1.5)
+    raise last_err
+
+def _coerce_json(raw: str):
+    """Try to coerce sloppy JSON into valid JSON."""
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    # grab first {...} block if possible
+    if raw and "{" in raw and "}" in raw:
+        try:
+            s = raw[raw.find("{"): raw.rfind("}") + 1]
+            s = re.sub(r",\s*}", "}", s)
+            s = re.sub(r",\s*]", "]", s)
+            return json.loads(s)
+        except Exception:
+            pass
+    return None
+
+def _fix_json_with_llm(bad_text: str):
+    """One small ‘fix’ attempt to convert to valid JSON using a short call."""
+    try:
+        response = _chat_with_retry(
+            messages=[
+                {"role": "system", "content": "You fix malformed JSON. Output VALID JSON only, no commentary."},
+                {"role": "user", "content": bad_text[:6000]},  # guardrail
+            ],
+            max_tokens=450,
+            temperature=0.0,
+            attempts=1,
+        )
+        txt = response.choices[0].message.content.strip()
+        return _coerce_json(txt)
+    except Exception:
+        return None
+
 def generate_villain(tone="dark", force_new: bool = False):
     """
-    Phase 2: Adds a tiny cache so repeated clicks (same prompt) avoid a new API call.
-    Use `force_new=True` to ignore cache and generate a fresh one.
+    Adds a tiny cache so repeated clicks (same prompt) avoid a new API call.
+    Also includes JSON salvage + one strict fix attempt to reduce parse failures.
     """
     variety_prompt = random.choice([
         "Avoid using shadow or darkness-based powers.",
@@ -60,55 +112,34 @@ origin: A 2-3 sentence origin story
     if not force_new:
         cached = cache_get("villain_details", prompt_hash)
         if cached:
-            set_debug_info("Villain Details (cache HIT)", prompt, max_output_tokens=400, is_cache_hit=True)
+            set_debug_info(context="Villain Details (cache HIT)", prompt="", max_output_tokens=0, cost_only=True, cost_override=0.0, is_cache_hit=True)
             return cached
 
-    # 🧠 Persist dev debug info for this call (token estimate)
-    set_debug_info(context="Villain Details", prompt=None, max_output_tokens=400, cost_only=True, is_cache_hit=False)
+    # Show real GPT‑3.5 token estimate (not image price)
+    set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=400, cost_only=False, is_cache_hit=False)
 
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a creative villain generator."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=400,   # lowered to save cost
-            temperature=0.95,
-        )
+    # Call the API (with small retry on transient failure)
+    response = _chat_with_retry(
+        messages=[
+            {"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=400,
+        temperature=0.95,
+        attempts=2,
+    )
 
-        raw = response.choices[0].message.content.strip()
+    raw = response.choices[0].message.content.strip()
 
-        # Light JSON cleanup just in case the model adds trailing commas
-        raw = re.sub(r",\s*}", "}", raw)
-        raw = re.sub(r",\s*]", "]", raw)
-        data = json.loads(raw)
+    # First parse attempt + cleanup
+    data = _coerce_json(raw)
 
-        origin = data.get("origin", "Unknown")
-        gender = infer_gender_from_origin(origin)
-        if gender is None:
-            gender = random.choice(["male", "female", "nonbinary"])
+    # If still none, one strict fix pass
+    if data is None:
+        data = _fix_json_with_llm(raw)
 
-        result = {
-            "name": data.get("name", "Unknown"),
-            "alias": data.get("alias", "Unknown"),
-            "power": data.get("power", "Unknown"),
-            "weakness": data.get("weakness", "Unknown"),
-            "nemesis": data.get("nemesis", "Unknown"),
-            "lair": data.get("lair", "Unknown"),
-            "catchphrase": data.get("catchphrase", "Unknown"),
-            "crimes": data.get("crimes", "Unknown"),
-            "threat_level": data.get("threat_level", "Unknown"),
-            "faction": data.get("faction", "Unknown"),
-            "origin": origin,
-            "gender": gender
-        }
-
-        # save to cache
-        cache_set("villain_details", prompt_hash, result)
-        return result
-
-    except Exception as e:
+    if data is None:
+        # Final hard fail → user-friendly placeholder
         return {
             "name": "Error",
             "alias": "Parse Failure",
@@ -116,10 +147,34 @@ origin: A 2-3 sentence origin story
             "weakness": "Unknown",
             "nemesis": "Unknown",
             "lair": "Unknown",
-            "catchphrase": str(e),
-            "crimes": "Unknown",
+            "catchphrase": "The generator failed to return valid JSON.",
+            "crimes": [],
             "threat_level": "Unknown",
             "faction": "Unknown",
             "origin": "The generator failed to parse the villain data.",
             "gender": "unknown"
         }
+
+    origin = data.get("origin", "Unknown")
+    gender = infer_gender_from_origin(origin)
+    if gender is None:
+        gender = random.choice(["male", "female", "nonbinary"])
+
+    result = {
+        "name": data.get("name", "Unknown"),
+        "alias": data.get("alias", "Unknown"),
+        "power": data.get("power", "Unknown"),
+        "weakness": data.get("weakness", "Unknown"),
+        "nemesis": data.get("nemesis", "Unknown"),
+        "lair": data.get("lair", "Unknown"),
+        "catchphrase": data.get("catchphrase", "Unknown"),
+        "crimes": data.get("crimes", [] if data.get("crimes") is None else data.get("crimes")),
+        "threat_level": data.get("threat_level", "Unknown"),
+        "faction": data.get("faction", "Unknown"),
+        "origin": origin,
+        "gender": gender
+    }
+
+    # save to cache
+    cache_set("villain_details", prompt_hash, result)
+    return result
