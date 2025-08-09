@@ -5,11 +5,15 @@ import os
 import openai
 from dotenv import load_dotenv
 from optimization_utils import render_debug_panel, seed_debug_panel_if_needed
+
 # === OTP Email Helper ===
 import smtplib
 import ssl
 import random
 from email.mime.text import MIMEText
+
+# Airtable OTP helpers
+from airtable_utils import create_otp_record, verify_otp_code
 
 def send_otp_email(to_email: str, otp_code: str) -> bool:
     """Send OTP email via Gmail SMTP."""
@@ -53,11 +57,9 @@ if "free_ai_images_used" not in st.session_state:
 st.set_page_config(page_title="AI Villain Generator", page_icon="🌙", layout="centered")
 st.session_state['is_dev'] = is_dev
 
-# === Simple OTP Auth ===
+# === Simple OTP Auth (Airtable-backed) ===
 if "otp_verified" not in st.session_state:
     st.session_state.otp_verified = False
-if "otp_code" not in st.session_state:
-    st.session_state.otp_code = None
 if "otp_email" not in st.session_state:
     st.session_state.otp_email = None
 
@@ -65,25 +67,40 @@ if not st.session_state.otp_verified:
     st.subheader("🔐 Sign in with Email OTP")
 
     email_input = st.text_input("Enter your email")
-    if st.button("Send OTP"):
-        if email_input:
-            otp = str(random.randint(100000, 999999))
-            st.session_state.otp_code = otp
-            st.session_state.otp_email = email_input
-            if send_otp_email(email_input, otp):
-                st.success("OTP sent! Check your email.")
-        else:
-            st.error("Please enter a valid email.")
+    col_send, col_verify = st.columns(2)
 
-    otp_input = st.text_input("Enter the OTP code")
-    if st.button("Verify OTP"):
-        if otp_input == st.session_state.otp_code:
-            st.session_state.otp_verified = True
-            st.success("✅ Verified! You can now use the generator.")
-        else:
-            st.error("❌ Incorrect OTP.")
+    with col_send:
+        if st.button("Send OTP"):
+            if email_input:
+                # Generate a 6-digit code
+                otp = str(random.randint(100000, 999999))
+                # 1) Store hashed OTP in Airtable with 10-min expiry
+                ok = create_otp_record(email_input, otp, ttl_minutes=10)
+                if not ok:
+                    st.error("Could not create OTP. Try again in a moment.")
+                else:
+                    # 2) Email the code via Gmail SMTP
+                    if send_otp_email(email_input, otp):
+                        st.success("OTP sent! Check your email.")
+                        st.session_state.otp_email = email_input
+                    else:
+                        st.error("Failed to send the email. Try again.")
+            else:
+                st.error("Please enter a valid email.")
 
-    st.stop()
+    with col_verify:
+        otp_input = st.text_input("Enter the OTP code")
+        if st.button("Verify OTP"):
+            if not st.session_state.get("otp_email"):
+                st.error("No email on file. Please send a code first.")
+            else:
+                ok, msg = verify_otp_code(st.session_state.otp_email, otp_input)
+                if ok:
+                    st.session_state.otp_verified = True
+                    st.success("✅ Verified! You can now use the generator.")
+                else:
+                    st.error(msg)
+            st.stop()
 
 title_text = "🌙 AI Villain Generator"
 if is_dev:
@@ -171,10 +188,6 @@ if st.session_state.villain:
                 unsafe_allow_html=True
             )
             # do NOT st.stop() or st.rerun() so the existing villain + image keep rendering
-
-
-
-
         else:
             with st.spinner("Summoning villain through the multiverse..."):
                 ai_path = generate_ai_portrait(villain)
