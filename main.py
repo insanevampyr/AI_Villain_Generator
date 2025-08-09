@@ -125,7 +125,7 @@ def ui_otp_panel():
     if st.session_state.otp_cooldown_sec > 0:
         st.info(f"You can request a new code in {st.session_state.otp_cooldown_sec}s.")
         st.session_state.otp_cooldown_sec -= 1
-        st.experimental_rerun()
+        st.rerun()
 
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
