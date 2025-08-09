@@ -1,167 +1,193 @@
-import streamlit as st
-from generator import generate_villain
-from villain_utils import create_villain_card, save_villain_to_log, STYLE_THEMES, generate_ai_portrait
 import os
-import openai
-from dotenv import load_dotenv
-from optimization_utils import render_debug_panel, seed_debug_panel_if_needed
-
-# === OTP Email Helper ===
+import random
 import smtplib
 import ssl
-import random
 from email.mime.text import MIMEText
 
-# Airtable OTP helpers
-from airtable_utils import create_otp_record, verify_otp_code
+import streamlit as st
+from dotenv import load_dotenv
 
-def send_otp_email(to_email: str, otp_code: str) -> bool:
-    """Send OTP email via Gmail SMTP."""
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_pass = os.getenv("SMTP_PASS")
-    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", 587))
+from generator import generate_villain
+from villain_utils import (
+    create_villain_card,
+    save_villain_to_log,
+    STYLE_THEMES,
+    generate_ai_portrait,
+)
+from optimization_utils import seed_debug_panel_if_needed, render_debug_panel
+from airtable_utils import (
+    create_otp_record,
+    verify_otp_code,
+    normalize_email,
+    can_send_otp,
+    upsert_user,
+    check_and_consume_free_or_credit,
+)
 
-    subject = "Your AI Villain Generator OTP Code"
-    body = f"Your one-time password is: {otp_code}\nThis code will expire in 10 minutes."
-
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = smtp_user
-    msg["To"] = to_email
-
-    try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls(context=context)
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, to_email, msg.as_string())
-        return True
-    except Exception as e:
-        st.error(f"Error sending OTP: {e}")
-        return False
-
-
-# Load OpenAI key from .env (local) or Secrets (cloud)
+# ---------------------------
+# Bootstrap
+# ---------------------------
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+APP_NAME = os.getenv("APP_NAME", "AI Villain Generator")
 
-# === AI Generation Limit (Phase 1) ===
+st.set_page_config(page_title=APP_NAME, page_icon="🌙", layout="centered")
+
+# Dev toggle (unchanged)
 DEV_KEY = "godmode"
 user_key = st.text_input("Enter dev key (optional)", type="password")
 is_dev = user_key == DEV_KEY
+st.session_state["is_dev"] = is_dev
 
-if "free_ai_images_used" not in st.session_state:
-    st.session_state.free_ai_images_used = 0
+seed_debug_panel_if_needed()
 
-st.set_page_config(page_title="AI Villain Generator", page_icon="🌙", layout="centered")
-st.session_state['is_dev'] = is_dev
+# ---------------------------
+# Persistent session fields
+# ---------------------------
+for k, v in dict(
+    otp_verified=False,
+    otp_email=None,
+    otp_cooldown_sec=0,
+    device_id=None,
+    client_ip=None,  # optional
+    villain=None,
+    villain_image=None,
+    ai_image=None,
+    card_file=None,
+).items():
+    st.session_state.setdefault(k, v)
 
-# === Simple OTP Auth (Airtable-backed) ===
-if "otp_verified" not in st.session_state:
-    st.session_state.otp_verified = False
-if "otp_email" not in st.session_state:
-    st.session_state.otp_email = None
+# Best-effort device id (UUID-ish). Can upgrade to cookie later.
+if not st.session_state.device_id:
+    st.session_state.device_id = f"dev-{random.randint(10**8, 10**9-1)}"
 
+# ---------------------------
+# OTP helpers
+# ---------------------------
+def _send_otp_email(to_email: str, code: str) -> bool:
+    subject = f"{APP_NAME}: Your OTP Code"
+    body = f"Your one-time password is: {code}\nThis code expires in 10 minutes."
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = SMTP_USER
+    msg["To"] = to_email
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as s:
+            s.starttls(context=ctx)
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(SMTP_USER, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        st.error(f"Email send failed: {e}")
+        return False
+
+def ui_otp_panel():
+    st.subheader("🔐 Sign in to continue")
+
+    email = st.text_input("Email", value=st.session_state.otp_email or "", key="email_input").strip()
+
+    colA, colB = st.columns([1, 1])
+    with colA:
+        disabled = st.session_state.otp_cooldown_sec > 0
+        btn_label = "Resend code" if st.session_state.otp_email else "Send code"
+        if st.button(btn_label, disabled=disabled, use_container_width=True):
+            if not email or "@" not in email:
+                st.error("Enter a valid email.")
+            else:
+                if not can_send_otp(email):
+                    st.warning("Please wait a bit before requesting another code.")
+                else:
+                    code = str(random.randint(100000, 999999))
+                    create_otp_record(email, code)
+                    if _send_otp_email(email, code):
+                        st.success("Code sent. Check your inbox.")
+                        st.session_state.otp_email = email
+                        st.session_state.otp_cooldown_sec = 30  # UI cooldown
+    with colB:
+        otp = st.text_input("6-digit code", max_chars=6)
+        if st.button("Verify", use_container_width=True):
+            ok, msg = verify_otp_code(email or st.session_state.otp_email, otp.strip())
+            if ok:
+                st.session_state.otp_verified = True
+                st.session_state.otp_email = normalize_email(email or st.session_state.otp_email)
+                upsert_user(st.session_state.otp_email)  # ensure user exists
+                st.success("✅ Verified!")
+                st.rerun()
+            else:
+                st.error(msg)
+
+    # Countdown UI
+    if st.session_state.otp_cooldown_sec > 0:
+        st.info(f"You can request a new code in {st.session_state.otp_cooldown_sec}s.")
+        st.session_state.otp_cooldown_sec -= 1
+        st.experimental_rerun()
+
+# If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
-    st.subheader("🔐 Sign in with Email OTP")
+    ui_otp_panel()
+    st.stop()
 
-    email_input = st.text_input("Enter your email")
-    col_send, col_verify = st.columns(2)
-
-    with col_send:
-        if st.button("Send OTP"):
-            if email_input:
-                # Generate a 6-digit code
-                otp = str(random.randint(100000, 999999))
-                # 1) Store hashed OTP in Airtable with 10-min expiry
-                ok = create_otp_record(email_input, otp, ttl_minutes=10)
-                if not ok:
-                    st.error("Could not create OTP. Try again in a moment.")
-                else:
-                    # 2) Email the code via Gmail SMTP
-                    if send_otp_email(email_input, otp):
-                        st.success("OTP sent! Check your email.")
-                        st.session_state.otp_email = email_input
-                    else:
-                        st.error("Failed to send the email. Try again.")
-            else:
-                st.error("Please enter a valid email.")
-
-    with col_verify:
-        otp_input = st.text_input("Enter the OTP code")
-        if st.button("Verify OTP"):
-            if not st.session_state.get("otp_email"):
-                st.error("No email on file. Please send a code first.")
-            else:
-                ok, msg = verify_otp_code(st.session_state.otp_email, otp_input)
-                if ok:
-                    st.session_state.otp_verified = True
-                    st.success("✅ Verified! You can now use the generator.")
-                else:
-                    st.error(msg)
-            st.stop()
-
+# ---------------------------
+# Header (signed-in)
+# ---------------------------
 title_text = "🌙 AI Villain Generator"
 if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔧 Debug panel: pre-seed (so it appears immediately in godmode)
-seed_debug_panel_if_needed()
+norm_email = normalize_email(st.session_state.otp_email or "")
+st.caption(f"Signed in as **{norm_email}**")
 
+# ---------------------------
+# Theme / style
+# ---------------------------
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
 ])
-
 theme = STYLE_THEMES.get(style, {"accent": "#ff4b4b", "text": "#ffffff"})
-theme['text'] = '#ffffff'
-
-st.markdown(f"""
+theme["text"] = "#ffffff"
+st.markdown(
+    f"""
     <style>
         h1 {{ color: {theme['accent']} }}
-        body, .stApp, .stMarkdown, label, .stRadio > div, .stSelectbox, .css-1v0mbdj, .css-qrbaxs {{
+        body, .stApp, .stMarkdown, label, .stRadio > div, .stSelectbox {{
             color: {theme['text']} !important;
         }}
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# Portrait upload (initial state)
+# ---------------------------
+# Portrait source
+# ---------------------------
 st.markdown("### How would you like to add a villain image?")
 image_option = st.radio("Choose Image Source", ["Upload Your Own", "AI Generate"], horizontal=True, label_visibility="collapsed")
 uploaded_image = None
-
 if image_option == "Upload Your Own":
     uploaded_image = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
     if uploaded_image is not None:
         st.session_state.villain_image = uploaded_image
 
-# Initialize session state
-if "villain" not in st.session_state:
-    st.session_state.villain = None
-if "villain_image" not in st.session_state:
-    st.session_state.villain_image = None
-if "ai_image" not in st.session_state:
-    st.session_state.ai_image = None
-if "card_file" not in st.session_state:
-    st.session_state.card_file = None
-if "force_new" not in st.session_state:
-    st.session_state.force_new = False
-
-# Small toggle to skip cache (so you can still get a fresh villain)
-force_new = st.checkbox("♻️ New (ignore cache)", value=False, key="force_new")
-
-# Generate villain button
+# ---------------------------
+# Generate villain details (always fresh; no cache toggle)
+# ---------------------------
 if st.button("Generate Villain Details"):
-    st.session_state.villain = generate_villain(tone=style, force_new=force_new)
+    st.session_state.villain = generate_villain(tone=style, force_new=True)  # always new
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
     save_villain_to_log(st.session_state.villain)
-    # ✅ refresh debug panel immediately
     st.rerun()
 
-# Helper to bust cache by reading image bytes
+# ---------------------------
+# Helper
+# ---------------------------
 def _image_bytes(path):
     try:
         with open(path, "rb") as f:
@@ -169,25 +195,33 @@ def _image_bytes(path):
     except Exception:
         return None
 
-# Display villain & image preview
+# ---------------------------
+# Detail view + AI image flow
+# ---------------------------
 if st.session_state.villain:
     villain = st.session_state.villain
 
-    # AI Generation Trigger
     if st.button("🎨 AI Generate Villain Image"):
-        if not is_dev and st.session_state.free_ai_images_used >= 1:
+        ok, msg = check_and_consume_free_or_credit(
+            user_email=norm_email,
+            device_id=st.session_state.device_id,
+            ip=st.session_state.client_ip,
+        )
+        if not ok and not is_dev:
             st.markdown(
                 """
-                <div style="padding: 0.5em; background-color: #2b2b2b; border-radius: 5px; display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size: 1.1em; color: #ffffff;">🛑 You’ve already used your free AI portrait!</span>
-                    <a href="https://buymeacoffee.com/ai_villain" target="_blank">
-                        <img src="https://img.buymeacoffee.com/button-api/?text=Support%20Us&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="45">
-                    </a>
+                <div style="padding: 0.6em; background-color: #2b2b2b; border-radius: 6px;">
+                    <div style="font-size: 1.05em; color: #fff; margin-bottom: 6px;">🛑 {msg}</div>
+                    <div>
+                        <input style="padding:8px;border-radius:6px;border:1px solid #444;background:#111;color:#eee;width:220px" placeholder="Redeem code (coming soon)" disabled />
+                        <a href="https://buymeacoffee.com/ai_villain" target="_blank" style="margin-left:10px;display:inline-block">
+                            <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20Credits&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="42">
+                        </a>
+                    </div>
                 </div>
-                """,
+                """.replace("{msg}", msg),
                 unsafe_allow_html=True
             )
-            # do NOT st.stop() or st.rerun() so the existing villain + image keep rendering
         else:
             with st.spinner("Summoning villain through the multiverse..."):
                 ai_path = generate_ai_portrait(villain)
@@ -195,8 +229,6 @@ if st.session_state.villain:
                     st.session_state.ai_image = ai_path
                     st.session_state.villain_image = ai_path
                     st.session_state.card_file = create_villain_card(villain, image_file=ai_path, theme_name=style)
-                    if not is_dev:
-                        st.session_state.free_ai_images_used += 1
                     st.success("AI-generated portrait added!")
                     st.rerun()
                 else:
@@ -255,6 +287,5 @@ if st.session_state.villain:
     else:
         st.error("Villain card could not be generated. Please try again.")
 
-# ✅ Render debug panel once at the bottom
-from optimization_utils import render_debug_panel as _rdp  # avoid accidental shadowing
-_rdp()
+# Dev debug panel
+render_debug_panel()

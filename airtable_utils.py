@@ -1,191 +1,202 @@
 # airtable_utils.py
-# Minimal Airtable helpers for OTP storage + verification + user upsert
-# Uses the standard Airtable REST API (no extra deps).
+# Airtable + Auth helpers for AI Villain
+# - Email normalization (one-free-ever by normalized_email)
+# - OTP create/verify with hash + expiry + attempts + resend rate limit
+# - User upsert, free/credit enforcement + device guard hooks
 
-import os
-import time
-import json
-import hmac
 import hashlib
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple, Dict, Any, List
 import requests
-from datetime import datetime, timedelta
-from urllib.parse import urlencode, quote
 
-AIRTABLE_API_KEY   = os.getenv("AIRTABLE_API_KEY", "")
-AIRTABLE_BASE_ID   = os.getenv("AIRTABLE_BASE_ID", "")
-USERS_TABLE        = os.getenv("AIRTABLE_USERS_TABLE", "Users")
-OTPS_TABLE         = os.getenv("AIRTABLE_OTPS_TABLE", "OTPs")
-TOKENS_TABLE       = os.getenv("AIRTABLE_TOKENS_TABLE", "Tokens")
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "")
+AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "")
+USERS_TBL = os.getenv("AIRTABLE_USERS_TABLE", "Users")
+OTPS_TBL = os.getenv("AIRTABLE_OTPS_TABLE", "OTPs")
+TOKENS_TBL = os.getenv("AIRTABLE_TOKENS_TABLE", "Tokens")
 
-# Optional server-side secret to "pepper" OTP hashing (recommended)
-OTP_PEPPER         = os.getenv("OTP_PEPPER", "set-a-strong-secret-in-env")
+OTP_TTL_SECONDS = int(os.getenv("OTP_TTL_SECONDS", "600"))      # 10 min
+OTP_RESEND_COOLDOWN = int(os.getenv("OTP_RESEND_COOLDOWN", "60"))  # 60s server-side
+OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+OTP_SALT = os.getenv("OTP_HASH_SALT", "")
 
 API_ROOT = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
+HDRS = {"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"}
 
-def _headers():
-    return {
-        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
-        "Content-Type": "application/json",
-    }
+# ---------------------------
+# Email normalization
+# ---------------------------
+def normalize_email(email: str) -> str:
+    if not email:
+        return ""
+    e = email.strip().lower()
+    if "@" not in e:
+        return e
+    local, domain = e.split("@", 1)
+    if domain in ("gmail.com", "googlemail.com"):
+        if "+" in local:
+            local = local.split("+", 1)[0]
+        local = local.replace(".", "")
+        domain = "gmail.com"
+    return f"{local}@{domain}"
 
-def _table_url(table_name: str) -> str:
-    return f"{API_ROOT}/{quote(table_name)}"
+# ---------------------------
+# Airtable basic helpers
+# ---------------------------
+def _list_records(table: str, formula: Optional[str] = None, fields: Optional[List[str]] = None, max_records: int = 10) -> List[Dict[str, Any]]:
+    params = {"maxRecords": max_records}
+    if formula:
+        params["filterByFormula"] = formula
+    if fields:
+        for i, f in enumerate(fields):
+            params[f"fields[{i}]"] = f
+    r = requests.get(f"{API_ROOT}/{table}", headers=HDRS, params=params, timeout=30)
+    r.raise_for_status()
+    return r.json().get("records", [])
 
-def _now_utc_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+def _create_records(table: str, fields_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    payload = {"records": [{"fields": f} for f in fields_list], "typecast": True}
+    r = requests.post(f"{API_ROOT}/{table}", headers=HDRS, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json().get("records", [])
 
-def _future_utc_iso(minutes: int) -> str:
-    return (datetime.utcnow() + timedelta(minutes=minutes)).replace(microsecond=0).isoformat() + "Z"
+def _update_record(table: str, rec_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    payload = {"records": [{"id": rec_id, "fields": fields}], "typecast": True}
+    r = requests.patch(f"{API_ROOT}/{table}", headers=HDRS, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json().get("records", [])[0]
 
-def _otp_hash(email: str, code: str) -> str:
-    """
-    Hash = HMAC-SHA256( key=OTP_PEPPER, msg="{email}:{code}" )
-    (No need to store a separate salt column; the pepper lives in env.)
-    """
-    msg = f"{email}:{code}".encode("utf-8")
-    key = OTP_PEPPER.encode("utf-8")
-    return hmac.new(key, msg, hashlib.sha256).hexdigest()
-
-# -------------------------
+# ---------------------------
 # Users
-# -------------------------
-def upsert_user(email: str):
-    """Create user if missing with defaults; otherwise do nothing."""
-    rec = find_user_by_email(email)
-    if rec is not None:
-        return rec  # already exists
+# ---------------------------
+def upsert_user(email: str) -> Dict[str, Any]:
+    n = normalize_email(email)
+    recs = _list_records(USERS_TBL, formula=f"{{normalized_email}} = '{n}'", max_records=1)
+    if recs:
+        return recs[0]
+    fields = {"email": email, "normalized_email": n, "free_used": False, "ai_credits": 0}
+    return _create_records(USERS_TBL, [fields])[0]
 
-    payload = {
-        "records": [{
-            "fields": {
-                "email": email,
-                "free_used": False,
-                "ai_credits": 0
-            }
-        }],
-        # typecast True so minor type mismatches don't error out
-        "typecast": True
-    }
-    r = requests.post(_table_url(USERS_TABLE), headers=_headers(), data=json.dumps(payload))
-    r.raise_for_status()
-    out = r.json()
-    return out["records"][0]
-
-def find_user_by_email(email: str):
-    """Return the first Users record for email, or None."""
-    formula = f"{{email}} = '{email}'"
-    params = {"filterByFormula": formula, "maxRecords": 1}
-    url = _table_url(USERS_TABLE) + "?" + urlencode(params)
-    r = requests.get(url, headers=_headers())
-    r.raise_for_status()
-    recs = r.json().get("records", [])
+def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    n = normalize_email(email)
+    recs = _list_records(USERS_TBL, formula=f"{{normalized_email}} = '{n}'", max_records=1)
     return recs[0] if recs else None
 
-# -------------------------
-# OTPs
-# -------------------------
-def create_otp_record(email: str, code: str, ttl_minutes: int = 10) -> bool:
-    """Hash & store OTP with expiry/attempts/status=active."""
-    otp_h = _otp_hash(email, code)
-    expires_at = _future_utc_iso(ttl_minutes)
+def mark_free_granted(user_rec_id: str, device_id: Optional[str], ip: Optional[str]) -> None:
+    fields = {"free_used": True}
+    if device_id:
+        fields["free_device_id"] = device_id
+    if ip:
+        fields["free_ip"] = ip
+    _update_record(USERS_TBL, user_rec_id, fields)
 
-    payload = {
-        "records": [{
-            "fields": {
-                "email": email,
-                "otp_hash": otp_h,
-                "expires_at": expires_at,
-                "attempts": 0,
-                "status": "active",  # If your options are capitalized, typecast will create if needed
-            }
-        }],
-        "typecast": True
-    }
-    r = requests.post(_table_url(OTPS_TABLE), headers=_headers(), data=json.dumps(payload))
-    if r.status_code >= 400:
-        try:
-            print("Airtable OTP create error:", r.status_code, r.text)
-        except Exception:
-            pass
+def decrement_credit(user_rec_id: str) -> bool:
+    rec = _list_records(USERS_TBL, formula=f"RECORD_ID() = '{user_rec_id}'", fields=["ai_credits"], max_records=1)
+    if not rec:
         return False
+    credits = rec[0]["fields"].get("ai_credits", 0) or 0
+    if credits <= 0:
+        return False
+    _update_record(USERS_TBL, user_rec_id, {"ai_credits": max(0, credits - 1)})
     return True
 
-def _get_active_otp_record(email: str):
-    """Fetch the most recent active OTP for email."""
-    # Only active rows for this email, sorted by createdTime desc
-    formula = f"AND({{email}} = '{email}', {{status}} = 'active')"
-    params = {
-        "filterByFormula": formula,
-        "pageSize": 1,
-        "sort[0][field]": "expires_at",
-        "sort[0][direction]": "desc"
-    }
-    url = _table_url(OTPS_TABLE) + "?" + urlencode(params)
-    r = requests.get(url, headers=_headers())
-    r.raise_for_status()
-    recs = r.json().get("records", [])
-    return recs[0] if recs else None
+def device_already_claimed_free(device_id: Optional[str]) -> bool:
+    if not device_id:
+        return False
+    recs = _list_records(USERS_TBL, formula=f"AND({{free_device_id}} = '{device_id}', {{free_used}} = TRUE())", max_records=1)
+    return bool(recs)
 
-def _update_otp_record(rec_id: str, fields: dict):
-    payload = {
-        "records": [{
-            "id": rec_id,
-            "fields": fields
-        }],
-        "typecast": True
-    }
-    r = requests.patch(_table_url(OTPS_TABLE), headers=_headers(), data=json.dumps(payload))
-    r.raise_for_status()
-    return r.json()
+# ---------------------------
+# OTPs
+# ---------------------------
+def _sha(text: str) -> str:
+    h = hashlib.sha256()
+    h.update((OTP_SALT + text).encode("utf-8"))
+    return h.hexdigest()
 
-def verify_otp_code(email: str, code_attempt: str, max_attempts: int = 5):
-    """
-    Returns (ok: bool, message: str).
-    On success: marks OTP used & upserts user record.
-    On failure: increments attempts; if attempts >= max_attempts or expired → status expired.
-    """
-    rec = _get_active_otp_record(email)
-    if not rec:
-        return (False, "No active code found. Please request a new OTP.")
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
-    rec_id = rec["id"]
-    fields = rec.get("fields", {})
-    expires_at = fields.get("expires_at")
-    attempts = int(fields.get("attempts", 0))
-    status   = (fields.get("status") or "").lower()
+def _to_iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat()
 
-    # Expired?
-    if expires_at:
+def latest_active_otp(email: str) -> Optional[Dict[str, Any]]:
+    n = normalize_email(email)
+    recs = _list_records(OTPS_TBL, formula=f"{{email}} = '{n}'", max_records=10)
+    now = _now_utc()
+    active = []
+    for r in recs:
+        f = r.get("fields", {})
+        status = (f.get("status") or "").lower()
+        exp = f.get("expires_at")
         try:
-            now = datetime.utcnow()
-            exp = datetime.fromisoformat(expires_at.replace("Z",""))
-            if now > exp:
-                _update_otp_record(rec_id, {"status": "expired"})
-                return (False, "Code expired. Please request a new OTP.")
+            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00")) if exp else None
         except Exception:
-            # If parsing fails, be safe and reject
-            _update_otp_record(rec_id, {"status": "expired"})
-            return (False, "Code expired. Please request a new OTP.")
+            exp_dt = None
+        if status == "active" and exp_dt and exp_dt > now:
+            active.append((exp_dt, r))
+    if not active:
+        return None
+    active.sort(key=lambda x: x[0], reverse=True)
+    return active[0][1]
 
-    if attempts >= max_attempts:
-        _update_otp_record(rec_id, {"status": "expired"})
-        return (False, "Too many attempts. Please request a new OTP in a bit.")
+def can_send_otp(email: str) -> bool:
+    rec = latest_active_otp(email)
+    if not rec:
+        return True
+    created = rec.get("createdTime")
+    try:
+        created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+    except Exception:
+        return True
+    return (_now_utc() - created_dt).total_seconds() >= OTP_RESEND_COOLDOWN
 
-    # Compare hashes
-    expected_hash = fields.get("otp_hash", "")
-    attempt_hash  = _otp_hash(email, code_attempt or "")
+def create_otp_record(email: str, otp_code: str) -> Dict[str, Any]:
+    n = normalize_email(email)
+    exp = _now_utc() + timedelta(seconds=OTP_TTL_SECONDS)
+    fields = {"email": n, "otp_hash": _sha(otp_code), "expires_at": _to_iso(exp), "attempts": 0, "status": "Active"}
+    return _create_records(OTPS_TBL, [fields])[0]
 
-    if hmac.compare_digest(expected_hash, attempt_hash):
-        # Mark used and upsert user
-        _update_otp_record(rec_id, {"status": "used"})
-        upsert_user(email)
-        return (True, "Verified!")
-    else:
-        attempts += 1
-        updates = {"attempts": attempts}
-        # Optional: auto-expire if they just hit the cap
-        if attempts >= max_attempts:
-            updates["status"] = "expired"
-        _update_otp_record(rec_id, updates)
-        left = max(0, max_attempts - attempts)
-        return (False, f"Incorrect code. {left} attempt(s) left.")
+def verify_otp_code(email: str, otp_code: str) -> Tuple[bool, str]:
+    n = normalize_email(email)
+    rec = latest_active_otp(n)
+    if not rec:
+        return False, "No active code. Please request a new one."
+    rec_id = rec["id"]
+    f = rec.get("fields", {})
+    exp = f.get("expires_at")
+    attempts = f.get("attempts", 0) or 0
+    if attempts >= OTP_MAX_ATTEMPTS:
+        _update_record(OTPS_TBL, rec_id, {"status": "Expired"})
+        return False, "Too many attempts. Please request a new code later."
+    try:
+        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00")) if exp else None
+    except Exception:
+        exp_dt = None
+    if not exp_dt or exp_dt <= _now_utc():
+        _update_record(OTPS_TBL, rec_id, {"status": "Expired"})
+        return False, "Code expired. Please request a new one."
+    if f.get("otp_hash") != _sha(otp_code):
+        _update_record(OTPS_TBL, rec_id, {"attempts": attempts + 1})
+        left = max(0, OTP_MAX_ATTEMPTS - attempts - 1)
+        return False, f"Incorrect code. {left} attempt(s) left."
+    _update_record(OTPS_TBL, rec_id, {"status": "Used"})
+    user = upsert_user(n)
+    return True, user["id"]
+
+# ---------------------------
+# Free / Credit decision
+# ---------------------------
+def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str], ip: Optional[str]) -> Tuple[bool, str]:
+    user = get_user_by_email(user_email) or upsert_user(user_email)
+    rec_id = user["id"]
+    fields = user.get("fields", {})
+    if not fields.get("free_used", False):
+        if device_already_claimed_free(device_id):
+            return False, "This device already claimed the free image."
+        mark_free_granted(rec_id, device_id, ip)
+        return True, "Free image granted."
+    if decrement_credit(rec_id):
+        return True, "1 credit spent."
+    return False, "Out of credits. Redeem or buy more."
