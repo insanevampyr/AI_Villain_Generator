@@ -22,8 +22,9 @@ from airtable_utils import (
     normalize_email,
     can_send_otp,
     upsert_user,
-    get_user_by_email,
+    get_user_by_email,           # <-- ensure this import is present
     check_and_consume_free_or_credit,
+    adjust_credits,              # <-- NEW: admin helper
 )
 
 # ---------------------------
@@ -48,8 +49,8 @@ for k, v in dict(
     otp_verified=False,
     otp_email=None,
     otp_cooldown_sec=0,
-    device_id=None,   # lightweight device tag (per-browser session)
-    client_ip=None,   # optional future use
+    device_id=None,
+    client_ip=None,
     villain=None,
     villain_image=None,
     ai_image=None,
@@ -58,8 +59,6 @@ for k, v in dict(
 ).items():
     st.session_state.setdefault(k, v)
 
-# Simple device id (best-effort per session). If you want sticky across sessions,
-# we can later switch to a cookie/local-storage approach.
 if not st.session_state.device_id:
     st.session_state.device_id = f"dev-{random.randint(10**8, 10**9-1)}"
 
@@ -85,7 +84,6 @@ def _send_otp_email(to_email: str, code: str) -> bool:
         return False
 
 def _current_user_fields():
-    """Pull current user's Airtable fields (ai_credits, free_used)."""
     if not st.session_state.otp_email:
         return {"ai_credits": 0, "free_used": False}
     rec = get_user_by_email(st.session_state.otp_email)
@@ -115,7 +113,7 @@ def ui_otp_panel():
                     if _send_otp_email(email, code):
                         st.success("Code sent. Check your inbox.")
                         st.session_state.otp_email = email
-                        st.session_state.otp_cooldown_sec = 30  # UI cooldown
+                        st.session_state.otp_cooldown_sec = 30
 
     with colB:
         otp = st.text_input("6-digit code", max_chars=6)
@@ -124,13 +122,12 @@ def ui_otp_panel():
             if ok:
                 st.session_state.otp_verified = True
                 st.session_state.otp_email = normalize_email(email or st.session_state.otp_email)
-                upsert_user(st.session_state.otp_email)  # ensure user exists
+                upsert_user(st.session_state.otp_email)
                 st.success("✅ Verified!")
                 st.rerun()
             else:
                 st.error(msg)
 
-    # Cooldown ticker
     if st.session_state.otp_cooldown_sec > 0:
         st.info(f"You can request a new code in {st.session_state.otp_cooldown_sec}s.")
         st.session_state.otp_cooldown_sec -= 1
@@ -144,9 +141,7 @@ if not st.session_state.otp_verified:
 # ---------------------------
 # Invisible corner click → reveal dev drawer
 # ---------------------------
-# Clicking this tiny, translucent hitbox appends ?dev=1 to the URL (no JS needed)
 dev_open = "dev" in st.query_params
-# Small transparent link in bottom-right
 st.markdown(
     """
     <style>
@@ -155,28 +150,48 @@ st.markdown(
     a.dev-hitbox:hover{opacity:0.25;}
     div.dev-drawer{position:fixed;bottom:14px;right:14px;z-index:10000;
                    background:#111;border:1px solid #333;border-radius:10px;
-                   padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,0.4);}
+                   padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,0.4);min-width:260px;}
+    .dev-label{font-size:12px;color:#aaa;margin-bottom:6px;}
     </style>
     """,
     unsafe_allow_html=True,
 )
 if not dev_open:
-    # link that adds ?dev=1 to the URL
     st.markdown(f'<a class="dev-hitbox" href="?{urlencode({**st.query_params, **{"dev":"1"}})}"></a>', unsafe_allow_html=True)
 else:
-    # show a subtle drawer with the dev key input; add a close link that removes ?dev
-    close_params = dict(st.query_params)
-    close_params.pop("dev", None)
-    st.markdown(f'<div class="dev-drawer"><div style="font-size:12px;color:#aaa;margin-bottom:6px;">Developer</div>', unsafe_allow_html=True)
-    # Tiny text_input for dev key
+    close_params = dict(st.query_params); close_params.pop("dev", None)
+    st.markdown(f'<div class="dev-drawer"><div class="dev-label">Developer</div>', unsafe_allow_html=True)
+
+    # Dev key (tiny)
     dev_val = st.text_input("Dev key", value="", type="password", key="dev_key_input", label_visibility="collapsed", placeholder="dev key")
-    col_close, col_apply = st.columns([1,1])
+    col_apply, col_close = st.columns([1,1])
     with col_apply:
         if st.button("Apply", key="apply_dev_key", use_container_width=True):
             st.session_state.dev_key_entered = (dev_val == "godmode")
             st.rerun()
     with col_close:
         st.link_button("Close", f"?{urlencode(close_params)}", use_container_width=True)
+
+    # --- Admin Top‑Up (only if dev mode is active) ---
+    if st.session_state.dev_key_entered:
+        st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
+        st.caption("Admin credit top‑up")
+
+        tgt_email = st.text_input("User email", key="admin_topup_email", label_visibility="collapsed", placeholder="user@example.com")
+        col_delta, col_btn = st.columns([1,1])
+        with col_delta:
+            delta = st.number_input("Δ credits", min_value=-1000, max_value=1000, value=1, step=1, label_visibility="collapsed")
+        with col_btn:
+            if st.button("Apply change", use_container_width=True, key="btn_admin_apply_delta"):
+                if not tgt_email or "@" not in tgt_email:
+                    st.error("Enter a valid email.")
+                else:
+                    ok, msg, new_bal = adjust_credits(tgt_email.strip(), int(delta))
+                    if ok:
+                        st.success(f"{msg} New balance: {new_bal}")
+                    else:
+                        st.error(msg)
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 # Choose dev mode
@@ -196,10 +211,7 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# Compact identity + balance row
-balance_str = f"• Credits: {credits}"
-if credits <= 0:
-    balance_str = f"• **Credits: {credits}**"
+balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
 st.markdown(sub_line, unsafe_allow_html=True)
 
@@ -238,7 +250,7 @@ if image_option == "Upload Your Own":
 # Generate villain details (always fresh; no cache toggle)
 # ---------------------------
 if st.button("Generate Villain Details"):
-    st.session_state.villain = generate_villain(tone=style, force_new=True)  # always new
+    st.session_state.villain = generate_villain(tone=style, force_new=True)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
@@ -261,7 +273,6 @@ def _image_bytes(path):
 if st.session_state.villain:
     villain = st.session_state.villain
 
-    # If out of credits, let them know *before* clicking the button
     if not is_dev and free_used and credits <= 0:
         st.info("You’re out of credits. Redeem or buy more to generate another AI portrait.")
 
@@ -334,7 +345,6 @@ if st.session_state.villain:
         st.markdown(f"**Faction:** {villain['faction']}")
         st.markdown(f"**Origin:** {villain['origin']}")
 
-    # Always re-create card from freshest image
     image_for_card = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
     if st.session_state.card_file is None:
         st.session_state.card_file = create_villain_card(villain, image_file=image_for_card, theme_name=style)

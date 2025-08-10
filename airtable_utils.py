@@ -200,3 +200,22 @@ def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str], 
     if decrement_credit(rec_id):
         return True, "1 credit spent."
     return False, "Out of credits. Redeem or buy more."
+
+# ---------------------------
+# Admin: adjust credits (+/-)
+# ---------------------------
+def adjust_credits(email: str, delta: int) -> Tuple[bool, str, int]:
+    """
+    Adds (or subtracts) credits for a user by email.
+    Returns (ok, message, new_balance).
+    """
+    try:
+        user = get_user_by_email(email) or upsert_user(email)
+        rec_id = user["id"]
+        fields = user.get("fields", {}) or {}
+        current = int(fields.get("ai_credits", 0) or 0)
+        new_balance = max(0, current + int(delta))
+        _update_record(USERS_TBL, rec_id, {"ai_credits": new_balance})
+        return True, "Credits updated.", new_balance
+    except Exception as e:
+        return False, f"Failed to update credits: {e}", 0
