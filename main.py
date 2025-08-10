@@ -3,7 +3,8 @@ import random
 import smtplib
 import ssl
 from email.mime.text import MIMEText
-
+import uuid
+from airtable_utils import check_and_consume_free_or_credit   # already imported verify/create earlier
 import streamlit as st
 from dotenv import load_dotenv
 
