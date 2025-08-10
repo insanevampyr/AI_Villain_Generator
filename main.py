@@ -3,8 +3,8 @@ import random
 import smtplib
 import ssl
 from email.mime.text import MIMEText
-import uuid
-from airtable_utils import check_and_consume_free_or_credit   # already imported verify/create earlier
+from urllib.parse import urlencode
+
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -22,6 +22,7 @@ from airtable_utils import (
     normalize_email,
     can_send_otp,
     upsert_user,
+    get_user_by_email,
     check_and_consume_free_or_credit,
 )
 
@@ -38,12 +39,6 @@ APP_NAME = os.getenv("APP_NAME", "AI Villain Generator")
 
 st.set_page_config(page_title=APP_NAME, page_icon="🌙", layout="centered")
 
-# Dev toggle (unchanged)
-DEV_KEY = "godmode"
-user_key = st.text_input("Enter dev key (optional)", type="password")
-is_dev = user_key == DEV_KEY
-st.session_state["is_dev"] = is_dev
-
 seed_debug_panel_if_needed()
 
 # ---------------------------
@@ -53,21 +48,23 @@ for k, v in dict(
     otp_verified=False,
     otp_email=None,
     otp_cooldown_sec=0,
-    device_id=None,
-    client_ip=None,  # optional
+    device_id=None,   # lightweight device tag (per-browser session)
+    client_ip=None,   # optional future use
     villain=None,
     villain_image=None,
     ai_image=None,
     card_file=None,
+    dev_key_entered=False,
 ).items():
     st.session_state.setdefault(k, v)
 
-# Best-effort device id (UUID-ish). Can upgrade to cookie later.
+# Simple device id (best-effort per session). If you want sticky across sessions,
+# we can later switch to a cookie/local-storage approach.
 if not st.session_state.device_id:
     st.session_state.device_id = f"dev-{random.randint(10**8, 10**9-1)}"
 
 # ---------------------------
-# OTP helpers
+# Helpers
 # ---------------------------
 def _send_otp_email(to_email: str, code: str) -> bool:
     subject = f"{APP_NAME}: Your OTP Code"
@@ -86,6 +83,16 @@ def _send_otp_email(to_email: str, code: str) -> bool:
     except Exception as e:
         st.error(f"Email send failed: {e}")
         return False
+
+def _current_user_fields():
+    """Pull current user's Airtable fields (ai_credits, free_used)."""
+    if not st.session_state.otp_email:
+        return {"ai_credits": 0, "free_used": False}
+    rec = get_user_by_email(st.session_state.otp_email)
+    if not rec:
+        return {"ai_credits": 0, "free_used": False}
+    f = rec.get("fields", {}) or {}
+    return {"ai_credits": f.get("ai_credits", 0) or 0, "free_used": bool(f.get("free_used", False))}
 
 def ui_otp_panel():
     st.subheader("🔐 Sign in to continue")
@@ -109,6 +116,7 @@ def ui_otp_panel():
                         st.success("Code sent. Check your inbox.")
                         st.session_state.otp_email = email
                         st.session_state.otp_cooldown_sec = 30  # UI cooldown
+
     with colB:
         otp = st.text_input("6-digit code", max_chars=6)
         if st.button("Verify", use_container_width=True):
@@ -122,7 +130,7 @@ def ui_otp_panel():
             else:
                 st.error(msg)
 
-    # Countdown UI
+    # Cooldown ticker
     if st.session_state.otp_cooldown_sec > 0:
         st.info(f"You can request a new code in {st.session_state.otp_cooldown_sec}s.")
         st.session_state.otp_cooldown_sec -= 1
@@ -134,15 +142,66 @@ if not st.session_state.otp_verified:
     st.stop()
 
 # ---------------------------
-# Header (signed-in)
+# Invisible corner click → reveal dev drawer
 # ---------------------------
+# Clicking this tiny, translucent hitbox appends ?dev=1 to the URL (no JS needed)
+dev_open = "dev" in st.query_params
+# Small transparent link in bottom-right
+st.markdown(
+    """
+    <style>
+    a.dev-hitbox{position:fixed;bottom:10px;right:10px;width:22px;height:22px;
+                 display:block;opacity:0.04;z-index:9999;text-decoration:none;}
+    a.dev-hitbox:hover{opacity:0.25;}
+    div.dev-drawer{position:fixed;bottom:14px;right:14px;z-index:10000;
+                   background:#111;border:1px solid #333;border-radius:10px;
+                   padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,0.4);}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+if not dev_open:
+    # link that adds ?dev=1 to the URL
+    st.markdown(f'<a class="dev-hitbox" href="?{urlencode({**st.query_params, **{"dev":"1"}})}"></a>', unsafe_allow_html=True)
+else:
+    # show a subtle drawer with the dev key input; add a close link that removes ?dev
+    close_params = dict(st.query_params)
+    close_params.pop("dev", None)
+    st.markdown(f'<div class="dev-drawer"><div style="font-size:12px;color:#aaa;margin-bottom:6px;">Developer</div>', unsafe_allow_html=True)
+    # Tiny text_input for dev key
+    dev_val = st.text_input("Dev key", value="", type="password", key="dev_key_input", label_visibility="collapsed", placeholder="dev key")
+    col_close, col_apply = st.columns([1,1])
+    with col_apply:
+        if st.button("Apply", key="apply_dev_key", use_container_width=True):
+            st.session_state.dev_key_entered = (dev_val == "godmode")
+            st.rerun()
+    with col_close:
+        st.link_button("Close", f"?{urlencode(close_params)}", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Choose dev mode
+is_dev = bool(st.session_state.dev_key_entered)
+st.session_state["is_dev"] = is_dev
+
+# ---------------------------
+# Header (signed-in) with credits badge
+# ---------------------------
+norm_email = normalize_email(st.session_state.otp_email or "")
+user_summary = _current_user_fields()
+credits = user_summary["ai_credits"]
+free_used = user_summary["free_used"]
+
 title_text = "🌙 AI Villain Generator"
 if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-norm_email = normalize_email(st.session_state.otp_email or "")
-st.caption(f"Signed in as **{norm_email}**")
+# Compact identity + balance row
+balance_str = f"• Credits: {credits}"
+if credits <= 0:
+    balance_str = f"• **Credits: {credits}**"
+sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
+st.markdown(sub_line, unsafe_allow_html=True)
 
 # ---------------------------
 # Theme / style
@@ -201,6 +260,10 @@ def _image_bytes(path):
 # ---------------------------
 if st.session_state.villain:
     villain = st.session_state.villain
+
+    # If out of credits, let them know *before* clicking the button
+    if not is_dev and free_used and credits <= 0:
+        st.info("You’re out of credits. Redeem or buy more to generate another AI portrait.")
 
     if st.button("🎨 AI Generate Villain Image"):
         ok, msg = check_and_consume_free_or_credit(
