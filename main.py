@@ -24,7 +24,7 @@ from airtable_utils import (
     upsert_user,
     get_user_by_email,           # <-- ensure this import is present
     check_and_consume_free_or_credit,
-    adjust_credits,              # <-- NEW: admin helper
+    adjust_credits,              # <-- admin helper (dev drawer)
 )
 
 # ---------------------------
@@ -214,6 +214,24 @@ st.title(title_text)
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
 st.markdown(sub_line, unsafe_allow_html=True)
+
+# --- Persistent Out-of-credits banner (with yellow BMC button) ---
+if free_used and credits <= 0 and not is_dev:
+    st.markdown(
+        """
+        <div style="padding: 0.8em; background-color: #2b2b2b; border-radius: 8px; margin: 8px 0 12px;">
+            <div style="font-size: 1.05em; color: #fff; margin-bottom: 8px;">
+                You’re out of credits. Redeem a token or buy more to generate another AI portrait.
+            </div>
+            <div>
+                <a href="https://buymeacoffee.com/ai_villain" target="_blank" style="display:inline-block">
+                    <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20Credits&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="42">
+                </a>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # ---------------------------
 # Theme / style
