@@ -190,7 +190,7 @@ def generate_ai_portrait(villain):
     client = OpenAI()
     visual_prompt = generate_visual_prompt(villain)
 
-    # ✅ Updated to cost_only=True
+    # ✅ Updated to cost_only=True for a flat image price readout
     set_debug_info(
         context="DALL·E Image",
         prompt=visual_prompt,
