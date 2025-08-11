@@ -1,221 +1,182 @@
-# airtable_utils.py
-# Airtable + Auth helpers for AI Villain
-# - Email normalization (one-free-ever by normalized_email)
-# - OTP create/verify with hash + expiry + attempts + resend rate limit
-# - User upsert, free/credit enforcement + device guard hooks
+"""
+airtable_utils.py — now aligned to ai_credits + free_used columns in Airtable.
+"""
 
-import hashlib
+from __future__ import annotations
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple, Dict, Any, List
+import time
+from typing import Any, Dict, List, Optional, Tuple
 import requests
 
+# ---- env ----
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "")
-USERS_TBL = os.getenv("AIRTABLE_USERS_TABLE", "Users")
-OTPS_TBL = os.getenv("AIRTABLE_OTPS_TABLE", "OTPs")
-TOKENS_TBL = os.getenv("AIRTABLE_TOKENS_TABLE", "Tokens")
+USERS_TABLE      = os.getenv("AIRTABLE_USERS_TABLE", "Users")
+OTPS_TABLE       = os.getenv("AIRTABLE_OTPS_TABLE", "OTPs")
+TOKENS_TABLE     = os.getenv("AIRTABLE_TOKENS_TABLE", "Tokens")
+BMC_LOG_TABLE    = os.getenv("AIRTABLE_BMC_LOG_TABLE", "BMC_Events")
 
-OTP_TTL_SECONDS = int(os.getenv("OTP_TTL_SECONDS", "600"))      # 10 min
-OTP_RESEND_COOLDOWN = int(os.getenv("OTP_RESEND_COOLDOWN", "60"))  # 60s server-side
-OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
-OTP_SALT = os.getenv("OTP_HASH_SALT", "")
+OTP_TTL_SECONDS      = int(os.getenv("OTP_TTL_SECONDS", "600"))
+OTP_RESEND_COOLDOWN  = int(os.getenv("OTP_RESEND_COOLDOWN", "60"))
+OTP_MAX_ATTEMPTS     = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
 
-API_ROOT = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
-HDRS = {"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"}
+API_BASE = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
 
-# ---------------------------
-# Email normalization
-# ---------------------------
-def normalize_email(email: str) -> str:
-    if not email:
-        return ""
-    e = email.strip().lower()
-    if "@" not in e:
-        return e
-    local, domain = e.split("@", 1)
-    if domain in ("gmail.com", "googlemail.com"):
-        if "+" in local:
-            local = local.split("+", 1)[0]
-        local = local.replace(".", "")
-        domain = "gmail.com"
-    return f"{local}@{domain}"
+# ---- HTTP helpers ----
+def _headers() -> Dict[str, str]:
+    return {"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"}
 
-# ---------------------------
-# Airtable basic helpers
-# ---------------------------
-def _list_records(table: str, formula: Optional[str] = None, fields: Optional[List[str]] = None, max_records: int = 10) -> List[Dict[str, Any]]:
-    params = {"maxRecords": max_records}
-    if formula:
-        params["filterByFormula"] = formula
-    if fields:
-        for i, f in enumerate(fields):
-            params[f"fields[{i}]"] = f
-    r = requests.get(f"{API_ROOT}/{table}", headers=HDRS, params=params, timeout=30)
+def _list(table: str, **params) -> List[Dict[str, Any]]:
+    url = f"{API_BASE}/{table}"
+    r = requests.get(url, headers=_headers(), params=params, timeout=30)
     r.raise_for_status()
     return r.json().get("records", [])
 
-def _create_records(table: str, fields_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    payload = {"records": [{"fields": f} for f in fields_list], "typecast": True}
-    r = requests.post(f"{API_ROOT}/{table}", headers=HDRS, json=payload, timeout=30)
+def _create(table: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    url = f"{API_BASE}/{table}"
+    r = requests.post(url, headers=_headers(), json={"fields": fields}, timeout=30)
     r.raise_for_status()
-    return r.json().get("records", [])
+    return r.json()
 
-def _update_record(table: str, rec_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
-    payload = {"records": [{"id": rec_id, "fields": fields}], "typecast": True}
-    r = requests.patch(f"{API_ROOT}/{table}", headers=HDRS, json=payload, timeout=30)
+def _update(table: str, record_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    url = f"{API_BASE}/{table}/{record_id}"
+    r = requests.patch(url, headers=_headers(), json={"fields": fields}, timeout=30)
     r.raise_for_status()
-    return r.json().get("records", [])[0]
+    return r.json()
 
-# ---------------------------
-# Users
-# ---------------------------
-def upsert_user(email: str) -> Dict[str, Any]:
-    n = normalize_email(email)
-    recs = _list_records(USERS_TBL, formula=f"{{normalized_email}} = '{n}'", max_records=1)
-    if recs:
-        return recs[0]
-    fields = {"email": email, "normalized_email": n, "free_used": False, "ai_credits": 0}
-    return _create_records(USERS_TBL, [fields])[0]
+def _escape(s: str) -> str:
+    return (s or "").replace("'", "\\'")
+
+# ---- General user helpers ----
+def normalize_email(email: Optional[str]) -> str:
+    return (email or "").strip().lower()
 
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
-    n = normalize_email(email)
-    recs = _list_records(USERS_TBL, formula=f"{{normalized_email}} = '{n}'", max_records=1)
+    e = _escape(normalize_email(email))
+    if not e:
+        return None
+    recs = _list(USERS_TABLE, filterByFormula=f"LOWER({{email}})=LOWER('{e}')", maxRecords=1)
     return recs[0] if recs else None
 
-def mark_free_granted(user_rec_id: str, device_id: Optional[str], ip: Optional[str]) -> None:
-    fields = {"free_used": True}
-    if device_id:
-        fields["free_device_id"] = device_id
-    if ip:
-        fields["free_ip"] = ip
-    _update_record(USERS_TBL, user_rec_id, fields)
+def create_user(email: str, extra_fields: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    fields = {"email": normalize_email(email)}
+    if extra_fields:
+        fields.update(extra_fields)
+    return _create(USERS_TABLE, fields)
 
-def decrement_credit(user_rec_id: str) -> bool:
-    rec = _list_records(USERS_TBL, formula=f"RECORD_ID() = '{user_rec_id}'", fields=["ai_credits"], max_records=1)
-    if not rec:
+def upsert_user(email: str) -> Dict[str, Any]:
+    rec = get_user_by_email(email)
+    if rec:
+        return rec
+    return create_user(email, {"ai_credits": 0, "free_used": False})
+
+def set_user_fields(record_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    return _update(USERS_TABLE, record_id, fields)
+
+# ---- Credit handling ----
+def adjust_credits(email: str, delta: int) -> Tuple[bool, str, int]:
+    rec = upsert_user(email)
+    fields = rec.get("fields", {})
+    cur = int(fields.get("ai_credits", 0) or 0)
+    new_val = max(0, cur + int(delta))
+    set_user_fields(rec["id"], {"ai_credits": new_val})
+    return True, f"Credits updated by {delta:+d}.", new_val
+
+def add_credits_by_email(email: str, credits_to_add: int) -> bool:
+    if credits_to_add <= 0:
         return False
-    credits = rec[0]["fields"].get("ai_credits", 0) or 0
-    if credits <= 0:
-        return False
-    _update_record(USERS_TBL, user_rec_id, {"ai_credits": max(0, credits - 1)})
+    rec = upsert_user(email)
+    fields = rec.get("fields", {})
+    cur = int(fields.get("ai_credits", 0) or 0)
+    set_user_fields(rec["id"], {"ai_credits": cur + int(credits_to_add)})
     return True
 
-def device_already_claimed_free(device_id: Optional[str]) -> bool:
-    if not device_id:
-        return False
-    recs = _list_records(USERS_TBL, formula=f"AND({{free_device_id}} = '{device_id}', {{free_used}} = TRUE())", max_records=1)
-    return bool(recs)
+def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str] = None, ip: Optional[str] = None) -> Tuple[bool, str]:
+    rec = upsert_user(user_email)
+    fields = rec.get("fields", {})
+    credits = int(fields.get("ai_credits", 0) or 0)
+    free_used = bool(fields.get("free_used", False))
 
-# ---------------------------
-# OTPs
-# ---------------------------
-def _sha(text: str) -> str:
-    h = hashlib.sha256()
-    h.update((OTP_SALT + text).encode("utf-8"))
-    return h.hexdigest()
+    if credits > 0:
+        set_user_fields(rec["id"], {"ai_credits": credits - 1})
+        return True, "1 credit consumed."
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    if not free_used:
+        updates = {"free_used": True}
+        if device_id and not fields.get("first_device_id"):
+            updates["first_device_id"] = device_id
+        if ip and not fields.get("first_ip"):
+            updates["first_ip"] = ip
+        set_user_fields(rec["id"], updates)
+        return True, "Free use consumed."
 
-def _to_iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).isoformat()
+    return False, "You have no credits remaining. Buy credits to continue."
 
-def latest_active_otp(email: str) -> Optional[Dict[str, Any]]:
-    n = normalize_email(email)
-    recs = _list_records(OTPS_TBL, formula=f"{{email}} = '{n}'", max_records=10)
-    now = _now_utc()
-    active = []
-    for r in recs:
-        f = r.get("fields", {})
-        status = (f.get("status") or "").lower()
-        exp = f.get("expires_at")
-        try:
-            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00")) if exp else None
-        except Exception:
-            exp_dt = None
-        if status == "active" and exp_dt and exp_dt > now:
-            active.append((exp_dt, r))
-    if not active:
-        return None
-    active.sort(key=lambda x: x[0], reverse=True)
-    return active[0][1]
-
+# ---- OTPs ----
 def can_send_otp(email: str) -> bool:
-    rec = latest_active_otp(email)
-    if not rec:
+    email = normalize_email(email)
+    e = _escape(email)
+    recs = _list(OTPS_TABLE, filterByFormula=f"LOWER({{email}})=LOWER('{e}')", maxRecords=1, sort=[{"field":"created_unix","direction":"desc"}])
+    if not recs:
         return True
-    created = rec.get("createdTime")
-    try:
-        created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-    except Exception:
-        return True
-    return (_now_utc() - created_dt).total_seconds() >= OTP_RESEND_COOLDOWN
+    last = recs[0].get("fields", {})
+    created = int(last.get("created_unix", 0) or 0)
+    return (int(time.time()) - created) >= OTP_RESEND_COOLDOWN
 
-def create_otp_record(email: str, otp_code: str) -> Dict[str, Any]:
-    n = normalize_email(email)
-    exp = _now_utc() + timedelta(seconds=OTP_TTL_SECONDS)
-    fields = {"email": n, "otp_hash": _sha(otp_code), "expires_at": _to_iso(exp), "attempts": 0, "status": "Active"}
-    return _create_records(OTPS_TBL, [fields])[0]
+def create_otp_record(email: str, code: str) -> Dict[str, Any]:
+    now = int(time.time())
+    fields = {
+        "email": normalize_email(email),
+        "code": str(code),
+        "created_unix": now,
+        "expires_unix": now + OTP_TTL_SECONDS,
+        "attempts": 0,
+    }
+    return _create(OTPS_TABLE, fields)
 
-def verify_otp_code(email: str, otp_code: str) -> Tuple[bool, str]:
-    n = normalize_email(email)
-    rec = latest_active_otp(n)
-    if not rec:
+def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
+    e = _escape(normalize_email(email))
+    now = int(time.time())
+    recs = _list(OTPS_TABLE, filterByFormula=f"AND(LOWER({{email}})=LOWER('{e}'), {{expires_unix}} >= {now})", maxRecords=1, sort=[{"field":"created_unix","direction":"desc"}])
+    if not recs:
         return False, "No active code. Please request a new one."
-    rec_id = rec["id"]
-    f = rec.get("fields", {})
-    exp = f.get("expires_at")
-    attempts = f.get("attempts", 0) or 0
+    rec = recs[0]
+    fields = rec.get("fields", {})
+    attempts = int(fields.get("attempts", 0) or 0)
     if attempts >= OTP_MAX_ATTEMPTS:
-        _update_record(OTPS_TBL, rec_id, {"status": "Expired"})
-        return False, "Too many attempts. Please request a new code later."
+        return False, "Too many attempts. Request a new code."
+    if str(fields.get("code", "")).strip() == str(code).strip():
+        set_user_fields(rec["id"], {"expires_unix": 0})
+        return True, "Verified."
+    else:
+        _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
+        return False, "Incorrect code."
+
+# ---- Tokens ----
+def get_token(code: str) -> Optional[Dict[str, Any]]:
+    c = _escape(code)
+    recs = _list(TOKENS_TABLE, filterByFormula=f"LOWER({{code}})=LOWER('{c}')", maxRecords=1)
+    return recs[0] if recs else None
+
+def mark_token_redeemed(record_id: str, email: str) -> None:
+    now = int(time.time())
     try:
-        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00")) if exp else None
+        _update(TOKENS_TABLE, record_id, {"redeemed_by": email, "redeemed_at": now, "is_redeemed": True})
     except Exception:
-        exp_dt = None
-    if not exp_dt or exp_dt <= _now_utc():
-        _update_record(OTPS_TBL, rec_id, {"status": "Expired"})
-        return False, "Code expired. Please request a new one."
-    if f.get("otp_hash") != _sha(otp_code):
-        _update_record(OTPS_TBL, rec_id, {"attempts": attempts + 1})
-        left = max(0, OTP_MAX_ATTEMPTS - attempts - 1)
-        return False, f"Incorrect code. {left} attempt(s) left."
-    _update_record(OTPS_TBL, rec_id, {"status": "Used"})
-    user = upsert_user(n)
-    return True, user["id"]
+        pass
 
-# ---------------------------
-# Free / Credit decision
-# ---------------------------
-def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str], ip: Optional[str]) -> Tuple[bool, str]:
-    user = get_user_by_email(user_email) or upsert_user(user_email)
-    rec_id = user["id"]
-    fields = user.get("fields", {})
-    if not fields.get("free_used", False):
-        if device_already_claimed_free(device_id):
-            return False, "This device already claimed the free image."
-        mark_free_granted(rec_id, device_id, ip)
-        return True, "Free image granted."
-    if decrement_credit(rec_id):
-        return True, "1 credit spent."
-    return False, "Out of credits. Redeem or buy more."
-
-# ---------------------------
-# Admin: adjust credits (+/-)
-# ---------------------------
-def adjust_credits(email: str, delta: int) -> Tuple[bool, str, int]:
-    """
-    Adds (or subtracts) credits for a user by email.
-    Returns (ok, message, new_balance).
-    """
+# ---- BMC webhook logging ----
+def record_bmc_event(status: str, payload: Dict[str, Any], added_credits: int, email: Optional[str] = None) -> None:
     try:
-        user = get_user_by_email(email) or upsert_user(email)
-        rec_id = user["id"]
-        fields = user.get("fields", {}) or {}
-        current = int(fields.get("ai_credits", 0) or 0)
-        new_balance = max(0, current + int(delta))
-        _update_record(USERS_TBL, rec_id, {"ai_credits": new_balance})
-        return True, "Credits updated.", new_balance
-    except Exception as e:
-        return False, f"Failed to update credits: {e}", 0
+        preview = str(payload)
+        if len(preview) > 9000:
+            preview = preview[:9000] + "...(truncated)"
+        _create(BMC_LOG_TABLE, {
+            "status": status,
+            "email": normalize_email(email) if email else "",
+            "added_credits": int(added_credits),
+            "raw_payload": preview,
+            "ts_unix": int(time.time()),
+        })
+    except Exception:
+        pass

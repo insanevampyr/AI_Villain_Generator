@@ -2,6 +2,7 @@ import os
 import re
 import json
 from typing import Any, Dict, Optional
+import logging, traceback
 
 from fastapi import FastAPI, Request, HTTPException
 import uvicorn
@@ -16,7 +17,7 @@ app = FastAPI(title="AI Villain — BMC Webhook")
 # ==== ENV / Config ====
 BMC_WEBHOOK_SECRET = os.getenv("BMC_WEBHOOK_SECRET", "")
 
-# Optional fallback for plain “coffees” donations (not used for shop/memberships)
+# Credits per “coffee” donation (used in addition to shop/membership if present)
 CREDITS_PER_COFFEE = int(os.getenv("BMC_CREDITS_PER_COFFEE", "0"))
 
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
@@ -26,26 +27,24 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 SEND_RECEIPT = False  # flip to True if you want auto email receipts
 
-# === MEMBERSHIP → credits (set the numbers you want for each tier) ===
-# Taken from your public membership page:
-# Starter Baddie, Street Thug, Henchman, Crime Lieutenant, Shadow Boss, Mastermind, Archvillain, Supreme Overlord
+# === MEMBERSHIP → credits (exact names from your page) ===
 MEMBERSHIP_CREDIT_MAP: Dict[str, int] = {
-    "Starter Baddie": 15,       # <-- set how many credits to award per charge/renewal
+    "Starter Baddie": 15,
     "Street Thug": 30,
     "Henchman": 75,
     "Crime Lieutenant": 150,
-    "Shadow Boss": 3000,
+    "Shadow Boss": 300,
     "Mastermind": 1000,
     "Archvillain": 2000,
     "Supreme Overlord": 5000,
 }
 
-# === SHOP items override (exact match). If not set, we’ll parse titles like “4 credits” with regex below
+# === SHOP item overrides (optional). Regex handles “N credits” automatically.
 SHOP_TITLE_CREDIT_MAP: Dict[str, int] = {
-    # "4 credits": 4,  # not required; regex below will parse this automatically
+    # "4 credits": 4,
 }
 
-# Parse titles like “4 credits”, “10 Credits”, case-insensitive
+# Parse titles like “4 credits”, case-insensitive
 TITLE_CREDIT_REGEX = os.getenv("BMC_TITLE_CREDIT_REGEX", r"^\s*(\d+)\s*credits?\b")
 
 # ---------- helpers ----------
@@ -162,41 +161,49 @@ async def bmc_webhook(request: Request):
             record_bmc_event(status="ignored_no_email", payload=payload, added_credits=0)
             raise HTTPException(status_code=422, detail="No email in payload")
 
-        # 1) Membership crediting
+        # ---- accumulate credits from ALL recognized signals ----
+        total = 0
+        breakdown: Dict[str, int] = {}
+
+        # Membership
         membership_name = _extract_membership_name(payload)
         if membership_name:
-            credits = _credits_for_membership(membership_name) or 0
-            if credits > 0:
-                add_credits_by_email(email=email, credits_to_add=credits)
-                record_bmc_event("credited_membership", payload, credits, email=email)
-                _send_receipt(email, credits)
-                return {"ok": True, "type": "membership", "membership": membership_name, "email": email, "added_credits": credits}
-            else:
-                record_bmc_event("ignored_membership_no_map", payload, 0, email=email)
-                return {"ok": True, "info": "Membership not mapped to credits", "membership": membership_name, "email": email}
+            mcred = _credits_for_membership(membership_name) or 0
+            if mcred > 0:
+                total += mcred
+                breakdown["membership"] = mcred
+                breakdown["membership_name"] = membership_name  # helpful in response
 
-        # 2) Shop crediting
+        # Shop
         title = _extract_shop_title(payload)
         if title:
             qty = _extract_quantity(payload)
-            credits = _credits_for_shop(title, qty) or 0
-            if credits > 0:
-                add_credits_by_email(email=email, credits_to_add=credits)
-                record_bmc_event("credited_shop", payload, credits, email=email)
-                _send_receipt(email, credits)
-                return {"ok": True, "type": "shop", "title": title, "qty": qty, "email": email, "added_credits": credits}
-            else:
-                record_bmc_event("ignored_shop_unparsed", payload, 0, email=email)
-                return {"ok": True, "info": "Shop title not mapped/parsed", "title": title, "qty": qty, "email": email}
+            scred = _credits_for_shop(title, qty) or 0
+            if scred > 0:
+                total += scred
+                breakdown["shop"] = scred
+                breakdown["shop_title"] = title
+                breakdown["shop_quantity"] = qty
 
-        # 3) Donations via “coffees” (last resort / optional)
+        # Coffees (donations)
         coffees = _extract_coffees(payload)
         if coffees and CREDITS_PER_COFFEE > 0:
-            credits = coffees * CREDITS_PER_COFFEE
-            add_credits_by_email(email=email, credits_to_add=credits)
-            record_bmc_event("credited_coffees", payload, credits, email=email)
-            _send_receipt(email, credits)
-            return {"ok": True, "type": "coffee", "coffees": coffees, "email": email, "added_credits": credits}
+            ccred = coffees * CREDITS_PER_COFFEE
+            if ccred > 0:
+                total += ccred
+                breakdown["coffees"] = ccred
+                breakdown["coffees_count"] = coffees
+                breakdown["credits_per_coffee"] = CREDITS_PER_COFFEE
+
+        if total > 0:
+            # single Airtable write
+            add_credits_by_email(email=email, credits_to_add=total)
+
+            # log with breakdown bundled into payload preview
+            record_bmc_event("credited_multi", {"payload": payload, "credit_breakdown": breakdown}, total, email=email)
+
+            _send_receipt(email, total)
+            return {"ok": True, "email": email, "added_credits": total, "breakdown": breakdown}
 
         # Nothing matched
         record_bmc_event("ignored_unhandled", payload, 0, email=email)
@@ -205,11 +212,13 @@ async def bmc_webhook(request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        traceback.print_exc()
+        logging.exception("BMC webhook error")
         try:
             record_bmc_event("error", {"error": str(e)}, 0)
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail="Server error")
+        raise HTTPException(status_code=500, detail=f"Server error: {e}")
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))

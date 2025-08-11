@@ -4,6 +4,7 @@ import smtplib
 import ssl
 from email.mime.text import MIMEText
 from urllib.parse import urlencode
+import streamlit as st
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -205,6 +206,23 @@ norm_email = normalize_email(st.session_state.otp_email or "")
 user_summary = _current_user_fields()
 credits = user_summary["ai_credits"]
 free_used = user_summary["free_used"]
+
+if credits <= 0:
+    st.info("You're out of credits. You get 1 free AI portrait per account. Need more?")
+    st.markdown(
+        """
+        <div style="display:flex;justify-content:center;margin:8px 0;">
+            <a href="https://buymeacoffee.com/ai_villain" target="_blank"
+               style="background:#FFDD00;padding:12px 18px;border-radius:10px;
+                      color:#000;font-weight:800;text-decoration:none;display:inline-block;">
+               ☕ Buy Me A Coffee — Get More Credits
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+# Continue to render the currently selected villain and portrait/card as usual — do not exit early here.
+
 
 title_text = "🌙 AI Villain Generator"
 if is_dev:
