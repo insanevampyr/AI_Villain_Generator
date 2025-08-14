@@ -59,7 +59,9 @@ for k, v in dict(
     prev_credits=0,
     thanks_shown=False,
     latest_credit_delta=0,
-    saw_thanks=True,  # default True so it doesn’t pop on first load
+    saw_thanks=True,             # default True so it doesn’t pop on first load
+    _last_known_credits=0,       # <- baseline used for delta calc
+    _baseline_inited=False,      # <- guard so we only set it once after login
 ).items():
     st.session_state.setdefault(k, v)
 
@@ -72,7 +74,6 @@ if st.session_state.get("is_dev"):
         f"delta:{st.session_state.get('latest_credit_delta')}  "
         f"saw_thanks:{st.session_state.get('saw_thanks')}"
     )
-
 
 # ---------------------------
 # Helpers
@@ -108,12 +109,11 @@ def _current_user_fields():
         "free_used": bool(f.get("free_used", False)),
     }
 
-
 # --- credits refresh + one-time thanks toast ---
 def refresh_credits() -> int:
     """
-    Pull latest credits and return the positive delta.
-    Updates st.session_state.ai_credits with the new value.
+    Pull latest credits from Airtable and return the positive delta.
+    Uses _last_known_credits as the baseline and updates it only here.
     """
     email = (st.session_state.get("otp_email")
              or st.session_state.get("normalized_email")
@@ -128,11 +128,13 @@ def refresh_credits() -> int:
         return 0
 
     fields = (rec.get("fields") or {})
-    old = int(st.session_state.get("ai_credits") or 0)   # what UI last showed
-    new = int(fields.get("ai_credits", 0) or 0)          # fresh from Airtable
+    old = int(st.session_state.get("_last_known_credits") or 0)
+    new = int(fields.get("ai_credits", 0) or 0)
     delta = max(0, new - old)
 
+    # update truth
     st.session_state.ai_credits = new
+    st.session_state._last_known_credits = new
     st.session_state.latest_credit_delta = delta
     return delta
 
@@ -281,7 +283,12 @@ user_summary = _current_user_fields()
 credits = user_summary["ai_credits"]
 free_used = user_summary["free_used"]
 
-# keep session truth in sync so delta compares correctly later
+# Initialize the baseline ONCE after login, then never touch it except in refresh_credits()
+if not st.session_state._baseline_inited:
+    st.session_state._last_known_credits = int(credits or 0)
+    st.session_state._baseline_inited = True
+
+# keep ai_credits in sync for the UI only
 st.session_state.ai_credits = int(credits or 0)
 
 if credits <= 0:
@@ -303,6 +310,7 @@ title_text = "🌙 AI Villain Generator"
 if is_dev:
     title_text += " ⚡"
 st.title(title_text)
+
 # 🔔 show one-time toast as early as possible
 thanks_for_support_if_any()
 
@@ -312,14 +320,10 @@ st.markdown(sub_line, unsafe_allow_html=True)
 
 # --- Refresh credits button (manual) ---
 if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
-    delta = refresh_credits()           # sets latest_credit_delta + ai_credits
+    delta = refresh_credits()           # sets latest_credit_delta + ai_credits + baseline
     if delta > 0:
         st.session_state.saw_thanks = False   # arm toast for next render
     st.rerun()
-
-
-# show the one-time toast (runs every render; gated by flags)
-thanks_for_support_if_any()
 
 # --- Persistent Out-of-credits banner (with yellow BMC button) ---
 if free_used and credits <= 0 and not is_dev:
