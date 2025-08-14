@@ -256,35 +256,36 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
 
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     """
-    Fetch newest OTPs for email w/ status='Active', then check expiry in Python and compare hash.
+    Fetch newest OTPs for email with status='Active', then check expiry in Python and compare hash.
     Marks Used on success; increments attempts on failure.
     """
     e = normalize_email(email)
-    # Only filter by email + status (no date math in Airtable)
+    # Only filter by email + status (no date math / no sort-by-field)
     formula = f"AND({_eq_lower_formula('email', e)}, {{status}}='Active')"
 
     recs = _list(
         OTPS_TABLE,
         filterByFormula=formula,
         maxRecords=5,
-        sort=[{"field": "createdTime", "direction": "desc"}],  # sort by Airtable’s created timestamp
     )
     if not recs:
         return False, "No active code. Please request a new one."
 
+    # Sort by record metadata (always present) instead of a field
+    recs.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
+
     now = int(time.time())
 
-    # Walk newest → oldest and pick the first unexpired one
     for rec in recs:
         fields = rec.get("fields", {}) or {}
-        exp_iso = fields.get("expires_at", "")  # must be a Date **with time** in Airtable
+        exp_iso = fields.get("expires_at", "")
         exp_epoch = _parse_iso_to_epoch(exp_iso)
         if exp_epoch <= now:
-            continue  # expired, try older
+            continue  # expired
 
         attempts = int(fields.get("attempts", 0) or 0)
         if attempts >= OTP_MAX_ATTEMPTS:
-            continue  # too many tries, treat as inactive
+            continue
 
         expected_hash = fields.get("otp_hash", "")
         if not expected_hash:
