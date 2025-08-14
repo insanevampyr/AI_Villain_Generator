@@ -57,6 +57,9 @@ for k, v in dict(
     ai_image=None,
     card_file=None,
     dev_key_entered=False,
+    # NEW for refresh flow:
+    prev_credits=0,
+    thanks_shown=False,
 ).items():
     st.session_state.setdefault(k, v)
 
@@ -68,7 +71,8 @@ if not st.session_state.device_id:
 # ---------------------------
 def _send_otp_email(to_email: str, code: str) -> bool:
     subject = f"{APP_NAME}: Your OTP Code"
-    body = f"Your one-time password is: {code}\nThis code expires in 10 minutes."
+    body = f"Your one-time password is: {code}
+This code expires in 10 minutes."
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = SMTP_USER
@@ -84,6 +88,7 @@ def _send_otp_email(to_email: str, code: str) -> bool:
         st.error(f"Email send failed: {e}")
         return False
 
+
 def _current_user_fields():
     if not st.session_state.otp_email:
         return {"ai_credits": 0, "free_used": False}
@@ -92,6 +97,7 @@ def _current_user_fields():
         return {"ai_credits": 0, "free_used": False}
     f = rec.get("fields", {}) or {}
     return {"ai_credits": f.get("ai_credits", 0) or 0, "free_used": bool(f.get("free_used", False))}
+
 
 def ui_otp_panel():
     st.subheader("🔐 Sign in to continue")
@@ -233,6 +239,25 @@ balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {cr
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
 st.markdown(sub_line, unsafe_allow_html=True)
 
+# --- Refresh credits button (manual) ---
+if st.button("🔄 Refresh Credits", key="refresh_credits"):
+    # Re-fetch user fields and update credits/free status
+    _ref = _current_user_fields()
+    new_credits = _ref.get("ai_credits", 0) or 0
+    new_free_used = bool(_ref.get("free_used", False))
+    if new_credits > (credits or 0):
+        st.markdown(
+            "<div style='padding:12px;border-radius:10px;background:#2d7d46;color:#fff;text-align:center;'>"
+            "🎉 Thank you for your support! Your credits have been updated."
+            "</div>",
+            unsafe_allow_html=True
+        )
+    # store previous for later comparisons if needed
+    st.session_state.prev_credits = credits
+    credits = new_credits
+    free_used = new_free_used
+    st.rerun()
+
 # --- Persistent Out-of-credits banner (with yellow BMC button) ---
 if free_used and credits <= 0 and not is_dev:
     st.markdown(
@@ -257,19 +282,8 @@ if free_used and credits <= 0 and not is_dev:
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
 ])
+
 theme = STYLE_THEMES.get(style, {"accent": "#ff4b4b", "text": "#ffffff"})
-theme["text"] = "#ffffff"
-st.markdown(
-    f"""
-    <style>
-        h1 {{ color: {theme['accent']} }}
-        body, .stApp, .stMarkdown, label, .stRadio > div, .stSelectbox {{
-            color: {theme['text']} !important;
-        }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 # ---------------------------
 # Portrait source
