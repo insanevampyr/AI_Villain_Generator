@@ -1,3 +1,11 @@
+# --- Upload support imports (step 2A) ---
+import os, uuid, time, imghdr, pathlib
+from typing import Optional
+from fastapi import UploadFile, File, Header, HTTPException
+from fastapi.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
+
+
 import os
 import re
 import json
@@ -16,6 +24,17 @@ import smtplib, ssl
 from email.mime.text import MIMEText
 
 app = FastAPI(title="AI Villain — BMC Webhook")
+# --- Upload config (step 2A) ---
+UPLOAD_API_TOKEN = os.getenv("UPLOAD_API_TOKEN", "")
+UPLOAD_DIR       = os.getenv("UPLOAD_DIR", "/var/data/uploads")
+BASE_URL         = os.getenv("BASE_URL", "https://ai-villain-bmc-webhook.onrender.com")
+
+# Ensure the upload directory exists
+pathlib.Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+# Serve uploaded files at /static (e.g., https://.../static/YYYY/MM/<uuid>.png)
+app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
+
 
 # ==== ENV / Config ====
 BMC_WEBHOOK_SECRET = os.getenv("BMC_WEBHOOK_SECRET", "")
@@ -244,3 +263,51 @@ async def bmc_webhook(request: Request):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("bmc_webhook:app", host="0.0.0.0", port=port, reload=True)
+
+# === Step 2A: image upload endpoint ===
+
+ALLOWED_EXT = {"png", "jpg", "jpeg", "webp"}
+
+def _auth_upload(token: Optional[str]):
+    """Simple bearer check for uploads."""
+    if not UPLOAD_API_TOKEN or not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if token.startswith("Bearer "):
+        token = token[len("Bearer "):]
+    if token != UPLOAD_API_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+def _pick_ext(filename: str, content: bytes) -> str:
+    ext = (filename.split(".")[-1] or "").lower()
+    if ext not in ALLOWED_EXT:
+        guess = imghdr.what(None, h=content)
+        if guess == "jpeg": return "jpg"
+        if guess in {"png", "jpg", "jpeg", "webp"}: return guess
+        return "png"
+    return "jpg" if ext == "jpeg" else ext
+
+@app.post("/uploads")
+async def upload_image(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    _auth_upload(authorization)
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 20MB)")
+
+    # Create YYYY/MM subfolder and random filename
+    now = time.gmtime()
+    subdir = f"{now.tm_year}/{now.tm_mon:02d}"
+    out_dir = pathlib.Path(UPLOAD_DIR) / subdir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = _pick_ext(file.filename or "image.png", data)
+    name = f"{uuid.uuid4().hex}.{ext}"
+    out_path = out_dir / name
+
+    with open(out_path, "wb") as f:
+        f.write(data)
+
+    url = f"{BASE_URL}/static/{subdir}/{name}"
+    return JSONResponse({"ok": True, "url": url})
