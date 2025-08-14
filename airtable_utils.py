@@ -50,15 +50,56 @@ OTP_MAX_ATTEMPTS     = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
 
 API_BASE = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
 
+def _escape_squote(s: str) -> str:
+    # Airtable formula strings use single quotes; escape them
+    return (s or "").replace("'", "\\'")
+
+def _eq_lower_formula(field: str, value: str) -> str:
+    # Builds: LOWER({field}) = LOWER('value')
+    # Ensure no stray whitespace/newlines in the field token
+    field = (field or "").strip()
+    return f"LOWER({{{field}}})=LOWER('{_escape_squote(value or '')}')"
+
+
 # ---- HTTP helpers ----
 def _headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"}
 
-def _list(table: str, **params) -> List[Dict[str, Any]]:
-    url = f"{API_BASE}/{table}"
-    r = requests.get(url, headers=_headers(), params=params, timeout=30)
-    r.raise_for_status()
-    return r.json().get("records", [])
+def _list(table: str, **params) -> list[dict]:
+    """
+    Wrapper for GET list with proper Airtable param encoding.
+    Supports:
+      - filterByFormula: str
+      - maxRecords: int
+      - sort: list[{"field": "...", "direction": "asc|desc"}]
+    """
+    url = f"{API_URL}/{table}"
+    q = {}
+
+    # filterByFormula / maxRecords pass-through
+    if "filterByFormula" in params and params["filterByFormula"]:
+        q["filterByFormula"] = params["filterByFormula"]
+    if "maxRecords" in params and params["maxRecords"]:
+        q["maxRecords"] = int(params["maxRecords"])
+
+    # Proper sort encoding: sort[0][field], sort[0][direction], ...
+    sort = params.get("sort") or []
+    for i, s in enumerate(sort):
+        fld = (s.get("field") or "").strip()
+        dir_ = (s.get("direction") or "asc").strip()
+        if fld:
+            q[f"sort[{i}][field]"] = fld
+            q[f"sort[{i}][direction]"] = "desc" if dir_.lower().startswith("d") else "asc"
+
+    r = requests.get(url, headers=_HEADERS, params=q, timeout=20)
+    try:
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        # Optional: add minimal diagnostics in logs without exposing secrets
+        # print("Airtable _list error:", e, "status:", r.status_code, "text:", r.text[:300])
+        raise
+    data = r.json()
+    return data.get("records", [])
 
 def _create(table: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{API_BASE}/{table}"
@@ -174,21 +215,31 @@ def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str] =
 
     return False, "You have no credits remaining. Buy credits to continue."
 
+
 # ---- OTPs ----
 def can_send_otp(email: str) -> bool:
-    email = normalize_email(email)
-    e = _escape(email)
+    """
+    Throttle OTP sends. Returns True if it's OK to send a new OTP now.
+    Logic: allow if no recent OTP (e.g., last 30s). Adjust window as needed.
+    """
+    email_norm = (email or "").strip().lower()
+    formula = _eq_lower_formula("email", email_norm)
+
     recs = _list(
         OTPS_TABLE,
-        filterByFormula=f"LOWER({{email}})=LOWER('{e}')",
+        filterByFormula=formula,
         maxRecords=1,
         sort=[{"field": "created_unix", "direction": "desc"}],
     )
+
     if not recs:
         return True
-    last = recs[0].get("fields", {})
-    created = int(last.get("created_unix", 0) or 0)
-    return (int(time.time()) - created) >= OTP_RESEND_COOLDOWN
+
+    fields = recs[0].get("fields", {}) or {}
+    last_unix = int(fields.get("created_unix") or 0)
+    now = int(time.time())
+    # 30s cooldown (tweak as you wish)
+    return (now - last_unix) >= 30
 
 def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     now = int(time.time())
