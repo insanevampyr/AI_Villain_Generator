@@ -60,6 +60,8 @@ for k, v in dict(
     # NEW for refresh flow:
     prev_credits=0,
     thanks_shown=False,
+    latest_credit_delta=0,   # how many credits were just added (for the toast)
+    saw_thanks=True,         # default True so it doesn’t pop on first render
 ).items():
     st.session_state.setdefault(k, v)
 
@@ -71,8 +73,8 @@ if not st.session_state.device_id:
 # ---------------------------
 def _send_otp_email(to_email: str, code: str) -> bool:
     subject = f"{APP_NAME}: Your OTP Code"
-    body = f"Your one-time password is: {code}
-This code expires in 10 minutes."
+    # FIX: proper newline handling in f-string
+    body = f"Your one-time password is: {code}\nThis code expires in 10 minutes."
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = SMTP_USER
@@ -87,6 +89,55 @@ This code expires in 10 minutes."
     except Exception as e:
         st.error(f"Email send failed: {e}")
         return False
+
+
+def _current_user_fields():
+    if not st.session_state.otp_email:
+        return {"ai_credits": 0, "free_used": False}
+    rec = get_user_by_email(st.session_state.otp_email)
+    if not rec:
+        return {"ai_credits": 0, "free_used": False}
+    f = rec.get("fields", {}) or {}
+    return {
+        "ai_credits": int(f.get("ai_credits", 0) or 0),
+        "free_used": bool(f.get("free_used", False)),
+    }
+
+
+# --- credits refresh + one-time thanks toast (define BEFORE usage) ---
+def refresh_credits() -> int:
+    """
+    Pulls latest credits from Airtable for the logged-in user.
+    Returns the new balance (int) and updates session's latest_credit_delta.
+    """
+    email = st.session_state.get("otp_email")
+    if not email:
+        st.session_state.latest_credit_delta = 0
+        return int(st.session_state.get("_last_known_credits") or 0)
+
+    rec = get_user_by_email(email)
+    if not rec:
+        st.session_state.latest_credit_delta = 0
+        return int(st.session_state.get("_last_known_credits") or 0)
+
+    fields = (rec.get("fields") or {})
+    new_bal = int(fields.get("ai_credits", 0) or 0)
+    old_bal = int(st.session_state.get("_last_known_credits") or 0)
+    delta = max(0, new_bal - old_bal)
+    st.session_state.latest_credit_delta = delta
+    return new_bal
+
+
+def thanks_for_support_if_any():
+    """
+    Shows a one-time toast if latest_credit_delta > 0 and we haven't shown it yet.
+    """
+    if st.session_state.get("latest_credit_delta", 0) and not st.session_state.get("saw_thanks", True):
+        st.success(
+            f"🎉 Thanks for your support! We just added **{st.session_state.latest_credit_delta}** credits to your account."
+        )
+        st.session_state.saw_thanks = True
+
 
 
 def _current_user_fields():
@@ -212,6 +263,8 @@ norm_email = normalize_email(st.session_state.otp_email or "")
 user_summary = _current_user_fields()
 credits = user_summary["ai_credits"]
 free_used = user_summary["free_used"]
+st.session_state["_last_known_credits"] = int(credits or 0)
+
 
 if credits <= 0:
     st.info("You're out of credits. You get 1 free AI portrait per account. Need more?")
@@ -241,22 +294,18 @@ st.markdown(sub_line, unsafe_allow_html=True)
 
 # --- Refresh credits button (manual) ---
 if st.button("🔄 Refresh Credits", key="refresh_credits"):
-    # Re-fetch user fields and update credits/free status
-    _ref = _current_user_fields()
-    new_credits = _ref.get("ai_credits", 0) or 0
-    new_free_used = bool(_ref.get("free_used", False))
-    if new_credits > (credits or 0):
-        st.markdown(
-            "<div style='padding:12px;border-radius:10px;background:#2d7d46;color:#fff;text-align:center;'>"
-            "🎉 Thank you for your support! Your credits have been updated."
-            "</div>",
-            unsafe_allow_html=True
-        )
-    # store previous for later comparisons if needed
-    st.session_state.prev_credits = credits
-    credits = new_credits
-    free_used = new_free_used
+    new_bal = refresh_credits()
+    # If anything changed, prep the one-time thanks and rerun
+    if new_bal != (credits or 0):
+        # set flags so the toast will show once after rerun
+        if st.session_state.latest_credit_delta > 0:
+            st.session_state.saw_thanks = False
+        # update the known value so UI shows fresh on next render
+        st.session_state["_last_known_credits"] = int(new_bal or 0)
     st.rerun()
+
+# Right after the button, show one-time toast if applicable
+thanks_for_support_if_any()
 
 # --- Persistent Out-of-credits banner (with yellow BMC button) ---
 if free_used and credits <= 0 and not is_dev:
