@@ -31,12 +31,14 @@ BMC_Events (optional log table):
   - ts_unix
 """
 from __future__ import annotations
+
 import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
+
 import requests
 
-# ---- env ----
+# ---- env / config ----
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "")
 USERS_TABLE      = os.getenv("AIRTABLE_USERS_TABLE", "Users")
@@ -44,15 +46,18 @@ OTPS_TABLE       = os.getenv("AIRTABLE_OTPS_TABLE", "OTPs")
 TOKENS_TABLE     = os.getenv("AIRTABLE_TOKENS_TABLE", "Tokens")
 BMC_LOG_TABLE    = os.getenv("AIRTABLE_BMC_LOG_TABLE", "BMC_Events")
 
-OTP_TTL_SECONDS      = int(os.getenv("OTP_TTL_SECONDS", "600"))
-OTP_RESEND_COOLDOWN  = int(os.getenv("OTP_RESEND_COOLDOWN", "60"))
-OTP_MAX_ATTEMPTS     = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+OTP_TTL_SECONDS     = int(os.getenv("OTP_TTL_SECONDS", "600"))
+OTP_RESEND_COOLDOWN = int(os.getenv("OTP_RESEND_COOLDOWN", "60"))
+OTP_MAX_ATTEMPTS    = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
 
 API_BASE = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
 
+
+# ---- small helpers ----
 def _escape_squote(s: str) -> str:
     # Airtable formula strings use single quotes; escape them
     return (s or "").replace("'", "\\'")
+
 
 def _eq_lower_formula(field: str, value: str) -> str:
     # Builds: LOWER({field}) = LOWER('value')
@@ -61,45 +66,52 @@ def _eq_lower_formula(field: str, value: str) -> str:
     return f"LOWER({{{field}}})=LOWER('{_escape_squote(value or '')}')"
 
 
-# ---- HTTP helpers ----
-def _headers() -> Dict[str, str]:
-    return {"Authorization": f"Bearer {AIRTABLE_API_KEY}", "Content-Type": "application/json"}
+def _escape(s: str) -> str:
+    return (s or "").replace("'", "\\'")
 
-def _list(table: str, **params) -> list[dict]:
+
+# ---- HTTP wrappers ----
+def _headers() -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def _list(table: str, **params) -> List[Dict[str, Any]]:
     """
-    Wrapper for GET list with proper Airtable param encoding.
+    GET list with proper Airtable param encoding.
     Supports:
       - filterByFormula: str
       - maxRecords: int
       - sort: list[{"field": "...", "direction": "asc|desc"}]
     """
-    url = f"{API_URL}/{table}"
-    q = {}
+    url = f"{API_BASE}/{table}"
+    q: Dict[str, Any] = {}
 
     # filterByFormula / maxRecords pass-through
-    if "filterByFormula" in params and params["filterByFormula"]:
-        q["filterByFormula"] = params["filterByFormula"]
-    if "maxRecords" in params and params["maxRecords"]:
-        q["maxRecords"] = int(params["maxRecords"])
+    fb = params.get("filterByFormula")
+    if fb:
+        q["filterByFormula"] = fb
+    mr = params.get("maxRecords")
+    if mr:
+        q["maxRecords"] = int(mr)
 
     # Proper sort encoding: sort[0][field], sort[0][direction], ...
     sort = params.get("sort") or []
     for i, s in enumerate(sort):
         fld = (s.get("field") or "").strip()
         dir_ = (s.get("direction") or "asc").strip()
-        if fld:
-            q[f"sort[{i}][field]"] = fld
-            q[f"sort[{i}][direction]"] = "desc" if dir_.lower().startswith("d") else "asc"
+        if not fld:
+            continue
+        q[f"sort[{i}][field]"] = fld
+        q[f"sort[{i}][direction]"] = "desc" if dir_.lower().startswith("d") else "asc"
 
-    r = requests.get(url, headers=_HEADERS, params=q, timeout=20)
-    try:
-        r.raise_for_status()
-    except requests.HTTPError as e:
-        # Optional: add minimal diagnostics in logs without exposing secrets
-        # print("Airtable _list error:", e, "status:", r.status_code, "text:", r.text[:300])
-        raise
+    r = requests.get(url, headers=_headers(), params=q, timeout=20)
+    r.raise_for_status()
     data = r.json()
     return data.get("records", [])
+
 
 def _create(table: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{API_BASE}/{table}"
@@ -107,25 +119,30 @@ def _create(table: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     r.raise_for_status()
     return r.json()
 
+
 def _update(table: str, record_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{API_BASE}/{table}/{record_id}"
     r = requests.patch(url, headers=_headers(), json={"fields": fields}, timeout=30)
     r.raise_for_status()
     return r.json()
 
-def _escape(s: str) -> str:
-    return (s or "").replace("'", "\\'")
 
 # ---- General user helpers ----
 def normalize_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
 
+
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     e = _escape(normalize_email(email))
     if not e:
         return None
-    recs = _list(USERS_TABLE, filterByFormula=f"LOWER({{email}})=LOWER('{e}')", maxRecords=1)
+    recs = _list(
+        USERS_TABLE,
+        filterByFormula=f"LOWER({{email}})=LOWER('{e}')",
+        maxRecords=1,
+    )
     return recs[0] if recs else None
+
 
 def find_user_by_any_email(email: str) -> Optional[Dict[str, Any]]:
     """
@@ -136,13 +153,14 @@ def find_user_by_any_email(email: str) -> Optional[Dict[str, Any]]:
     if not e:
         return None
     formula = (
-        f"OR("
+        "OR("
         f"LOWER({{email}})=LOWER('{e}'),"
         f"FIND(LOWER('{e}'), LOWER({{payment_emails}} & ''))>0"
-        f")"
+        ")"
     )
     recs = _list(USERS_TABLE, filterByFormula=formula, maxRecords=1)
     return recs[0] if recs else None
+
 
 def create_user(email: str, extra_fields: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     fields = {"email": normalize_email(email)}
@@ -150,14 +168,17 @@ def create_user(email: str, extra_fields: Optional[Dict[str, Any]] = None) -> Di
         fields.update(extra_fields)
     return _create(USERS_TABLE, fields)
 
+
 def upsert_user(email: str) -> Dict[str, Any]:
     rec = get_user_by_email(email)
     if rec:
         return rec
     return create_user(email, {"ai_credits": 0, "free_used": False})
 
+
 def set_user_fields(record_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     return _update(USERS_TABLE, record_id, fields)
+
 
 # ---- Credit handling ----
 def adjust_credits(email: str, delta: int) -> Tuple[bool, str, int]:
@@ -168,6 +189,7 @@ def adjust_credits(email: str, delta: int) -> Tuple[bool, str, int]:
     set_user_fields(rec["id"], {"ai_credits": new_val})
     return True, f"Credits updated by {delta:+d}.", new_val
 
+
 def add_credits_by_email(email: str, credits_to_add: int) -> bool:
     if credits_to_add <= 0:
         return False
@@ -176,6 +198,7 @@ def add_credits_by_email(email: str, credits_to_add: int) -> bool:
     cur = int(fields.get("ai_credits", 0) or 0)
     set_user_fields(rec["id"], {"ai_credits": cur + int(credits_to_add)})
     return True
+
 
 def add_credits_by_any_email(any_email: str, credits_to_add: int) -> bool:
     """
@@ -194,7 +217,10 @@ def add_credits_by_any_email(any_email: str, credits_to_add: int) -> bool:
     set_user_fields(rec["id"], {"ai_credits": cur + int(credits_to_add)})
     return True
 
-def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str] = None, ip: Optional[str] = None) -> Tuple[bool, str]:
+
+def check_and_consume_free_or_credit(
+    user_email: str, device_id: Optional[str] = None, ip: Optional[str] = None
+) -> Tuple[bool, str]:
     rec = upsert_user(user_email)
     fields = rec.get("fields", {})
     credits = int(fields.get("ai_credits", 0) or 0)
@@ -220,7 +246,6 @@ def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str] =
 def can_send_otp(email: str) -> bool:
     """
     Throttle OTP sends. Returns True if it's OK to send a new OTP now.
-    Logic: allow if no recent OTP (e.g., last 30s). Adjust window as needed.
     """
     email_norm = (email or "").strip().lower()
     formula = _eq_lower_formula("email", email_norm)
@@ -238,8 +263,8 @@ def can_send_otp(email: str) -> bool:
     fields = recs[0].get("fields", {}) or {}
     last_unix = int(fields.get("created_unix") or 0)
     now = int(time.time())
-    # 30s cooldown (tweak as you wish)
-    return (now - last_unix) >= 30
+    return (now - last_unix) >= OTP_RESEND_COOLDOWN
+
 
 def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     now = int(time.time())
@@ -252,6 +277,7 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     }
     return _create(OTPS_TABLE, fields)
 
+
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     e = _escape(normalize_email(email))
     now = int(time.time())
@@ -263,11 +289,14 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     )
     if not recs:
         return False, "No active code. Please request a new one."
+
     rec = recs[0]
     fields = rec.get("fields", {})
     attempts = int(fields.get("attempts", 0) or 0)
+
     if attempts >= OTP_MAX_ATTEMPTS:
         return False, "Too many attempts. Request a new code."
+
     if str(fields.get("code", "")).strip() == str(code).strip():
         # invalidate by setting expiry to 0
         try:
@@ -282,11 +311,13 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
             pass
         return False, "Incorrect code."
 
+
 # ---- Tokens (optional) ----
 def get_token(code: str) -> Optional[Dict[str, Any]]:
     c = _escape(code)
     recs = _list(TOKENS_TABLE, filterByFormula=f"LOWER({{code}})=LOWER('{c}')", maxRecords=1)
     return recs[0] if recs else None
+
 
 def mark_token_redeemed(record_id: str, email: str) -> None:
     now = int(time.time())
@@ -295,19 +326,23 @@ def mark_token_redeemed(record_id: str, email: str) -> None:
     except Exception:
         pass
 
+
 # ---- BMC webhook logging ----
 def record_bmc_event(status: str, payload: Dict[str, Any], added_credits: int, email: Optional[str] = None) -> None:
     try:
         preview = str(payload)
         if len(preview) > 9000:
             preview = preview[:9000] + "...(truncated)"
-        _create(BMC_LOG_TABLE, {
-            "status": status,
-            "email": normalize_email(email) if email else "",
-            "added_credits": int(added_credits),
-            "raw_payload": preview,
-            "ts_unix": int(time.time()),
-        })
+        _create(
+            BMC_LOG_TABLE,
+            {
+                "status": status,
+                "email": normalize_email(email) if email else "",
+                "added_credits": int(added_credits),
+                "raw_payload": preview,
+                "ts_unix": int(time.time()),
+            },
+        )
     except Exception:
         # Never raise from logging
         pass
