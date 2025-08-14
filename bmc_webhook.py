@@ -15,6 +15,52 @@ from airtable_utils import add_credits_by_any_email, record_bmc_event
 load_dotenv()
 
 app = FastAPI(title="AI Villain — BMC Webhook")
+# --- Public share endpoint ----------------------------------------------------
+from fastapi import HTTPException
+import os, requests, time
+
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "")
+AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "")
+AIRTABLE_VILLAINS_TABLE = os.getenv("AIRTABLE_VILLAINS_TABLE", "Villains")
+API_BASE = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
+
+def _headers():
+    return {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+
+def _find_villain_by_token(token: str):
+    # Filter: share_token equals token AND shared = true
+    formula = f"AND(LOWER({{share_token}})=LOWER('{token}'), {{shared}}=TRUE())"
+    r = requests.get(
+        f"{API_BASE}/{AIRTABLE_VILLAINS_TABLE}",
+        headers=_headers(),
+        params={"filterByFormula": formula, "maxRecords": 1},
+        timeout=20,
+    )
+    r.raise_for_status()
+    recs = (r.json() or {}).get("records", [])
+    return recs[0] if recs else None
+
+@app.get("/v/{token}")
+def view_shared_villain(token: str):
+    rec = _find_villain_by_token(token.strip())
+    if not rec:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    f = rec.get("fields", {}) or {}
+    # build a minimal, safe response (no PII, just owner_email and public assets)
+    image_urls = [a.get("url") for a in f.get("image", []) if isinstance(a, dict)]
+    card_urls  = [a.get("url") for a in f.get("card_image", []) if isinstance(a, dict)]
+    return {
+        "id": rec.get("id"),
+        "owner_email": f.get("owner_email", ""),   # you can remove this if you prefer
+        "style": f.get("style", ""),
+        "villain_json": f.get("villain_json", ""),
+        "image_urls": image_urls,
+        "card_urls": card_urls,
+        "version": f.get("version", 1),
+        "shared": True,
+    }
+
 
 # ===== Upload config =====
 UPLOAD_API_TOKEN = os.getenv("UPLOAD_API_TOKEN", "")
