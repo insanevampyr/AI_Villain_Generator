@@ -73,7 +73,7 @@ if not st.session_state.device_id:
 # ---------------------------
 def _send_otp_email(to_email: str, code: str) -> bool:
     subject = f"{APP_NAME}: Your OTP Code"
-    # FIX: proper newline handling in f-string
+    # FIX: correct newline in f-string
     body = f"Your one-time password is: {code}\nThis code expires in 10 minutes."
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -149,21 +149,38 @@ def _current_user_fields():
     f = rec.get("fields", {}) or {}
     return {"ai_credits": f.get("ai_credits", 0) or 0, "free_used": bool(f.get("free_used", False))}
 
-
 def ui_otp_panel():
     st.subheader("🔐 Sign in to continue")
 
-    email = st.text_input("Email", value=st.session_state.otp_email or "", key="email_input").strip()
+    email = st.text_input(
+        "Email",
+        value=st.session_state.otp_email or "",
+        key="email_input"
+    ).strip()
 
+    # ✅ define both columns before using them
     colA, colB = st.columns([1, 1])
+
     with colA:
         disabled = st.session_state.otp_cooldown_sec > 0
         btn_label = "Resend code" if st.session_state.otp_email else "Send code"
-        if st.button(btn_label, disabled=disabled, use_container_width=True):
+        if st.button(btn_label, disabled=disabled, use_container_width=True, key="btn_send_code"):
             if not email or "@" not in email:
                 st.error("Enter a valid email.")
             else:
-                if not can_send_otp(email):
+                # Guard Airtable errors so Streamlit doesn't bomb out
+                try:
+                    allowed = can_send_otp(email)
+                except Exception as e:
+                    st.error(
+                        "OTP system is temporarily unavailable. "
+                        "Check Streamlit Secrets for AIRTABLE_API_KEY, AIRTABLE_BASE_ID, and OTPS table name."
+                    )
+                    if st.session_state.get("is_dev"):
+                        st.warning(f"Airtable exception: {type(e).__name__}")
+                    st.stop()
+
+                if not allowed:
                     st.warning("Please wait a bit before requesting another code.")
                 else:
                     code = str(random.randint(100000, 999999))
@@ -174,9 +191,9 @@ def ui_otp_panel():
                         st.session_state.otp_cooldown_sec = 30
 
     with colB:
-        otp = st.text_input("6-digit code", max_chars=6)
-        if st.button("Verify", use_container_width=True):
-            ok, msg = verify_otp_code(email or st.session_state.otp_email, otp.strip())
+        otp = st.text_input("6-digit code", max_chars=6, key="otp_input")
+        if st.button("Verify", use_container_width=True, key="btn_verify_otp"):
+            ok, msg = verify_otp_code(email or st.session_state.otp_email, (otp or "").strip())
             if ok:
                 st.session_state.otp_verified = True
                 st.session_state.otp_email = normalize_email(email or st.session_state.otp_email)
