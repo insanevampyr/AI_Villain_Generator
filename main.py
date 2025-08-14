@@ -25,7 +25,7 @@ from airtable_utils import (
     get_user_by_email,           # needed for refresh flow
     check_and_consume_free_or_credit,
     adjust_credits,              # admin helper (dev drawer)
-    # new for saving
+    # new for saving/sharing
     create_villain_record,
     ensure_share_token,
     get_villain,
@@ -64,20 +64,13 @@ for k, v in dict(
     thanks_shown=False,
     latest_credit_delta=0,
     saw_thanks=True,             # default True so it doesn’t pop on first load
-    _last_known_credits=0,       # <- baseline used for delta calc
-    _baseline_inited=False,      # <- guard so we only set it once after login
+    _last_known_credits=0,       # baseline used for delta calc
+    _baseline_inited=False,      # guard so we set baseline only once after login
 ).items():
     st.session_state.setdefault(k, v)
 
 if not st.session_state.device_id:
     st.session_state.device_id = f"dev-{random.randint(10**8, 10**9-1)}"
-
-if st.session_state.get("is_dev"):
-    st.caption(
-        f"debug — credits:{st.session_state.get('ai_credits')}  "
-        f"delta:{st.session_state.get('latest_credit_delta')}  "
-        f"saw_thanks:{st.session_state.get('saw_thanks')}"
-    )
 
 # ---------------------------
 # Helpers
@@ -99,7 +92,6 @@ def _send_otp_email(to_email: str, code: str) -> bool:
     except Exception as e:
         st.error(f"Email send failed: {e}")
         return False
-
 
 def _current_user_fields():
     if not st.session_state.otp_email:
@@ -142,14 +134,12 @@ def refresh_credits() -> int:
     st.session_state.latest_credit_delta = delta
     return delta
 
-
 def thanks_for_support_if_any():
     if st.session_state.get("latest_credit_delta", 0) and not st.session_state.get("saw_thanks", True):
         st.success(
             f"🎉 Thanks for your support! We just added **{st.session_state.latest_credit_delta}** credits to your account."
         )
         st.session_state.saw_thanks = True
-
 
 def ui_otp_panel():
     st.subheader("🔐 Sign in to continue")
@@ -212,7 +202,6 @@ def ui_otp_panel():
     if st.session_state.get("otp_cooldown_sec", 0) > 0:
         st.session_state.otp_cooldown_sec = max(0, int(st.session_state.otp_cooldown_sec) - 1)
         st.rerun()
-
 
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
@@ -315,7 +304,7 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔔 show one-time toast as early as possible
+# 🔔 one‑time toast as early as possible
 thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
@@ -329,7 +318,7 @@ if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
         st.session_state.saw_thanks = False   # arm toast for next render
     st.rerun()
 
-# --- Persistent Out-of-credits banner ---
+# --- Out-of-credits banner ---
 if free_used and credits <= 0 and not is_dev:
     st.markdown(
         """
@@ -367,7 +356,7 @@ if image_option == "Upload Your Own":
         st.session_state.villain_image = uploaded_image
 
 # ---------------------------
-# Generate villain details (always fresh; no cache toggle)
+# Generate villain details
 # ---------------------------
 if st.button("Generate Villain Details"):
     st.session_state.villain = generate_villain(tone=style, force_new=True)
@@ -378,7 +367,7 @@ if st.button("Generate Villain Details"):
     st.rerun()
 
 # ---------------------------
-# Helper
+# Helpers
 # ---------------------------
 def _image_bytes(path):
     try:
@@ -507,7 +496,6 @@ if st.session_state.villain:
             rec = get_villain(rec_id)
             fields = rec.get("fields", {}) if rec else {}
             public_url = fields.get("public_url", "")
-            # Fallback if formula hasn't populated yet
             share_link = public_url or f"(share token: {token})"
             st.success(f"Saved! Share link: {share_link}")
         except Exception as e:
