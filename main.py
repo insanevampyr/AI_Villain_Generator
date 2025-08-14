@@ -4,7 +4,6 @@ import smtplib
 import ssl
 from email.mime.text import MIMEText
 from urllib.parse import urlencode
-import streamlit as st
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -23,9 +22,9 @@ from airtable_utils import (
     normalize_email,
     can_send_otp,
     upsert_user,
-    get_user_by_email,           # <-- ensure this import is present
+    get_user_by_email,           # needed for refresh flow
     check_and_consume_free_or_credit,
-    adjust_credits,              # <-- admin helper (dev drawer)
+    adjust_credits,              # admin helper (dev drawer)
 )
 
 # ---------------------------
@@ -40,7 +39,6 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 APP_NAME = os.getenv("APP_NAME", "AI Villain Generator")
 
 st.set_page_config(page_title=APP_NAME, page_icon="🌙", layout="centered")
-
 seed_debug_panel_if_needed()
 
 # ---------------------------
@@ -57,11 +55,11 @@ for k, v in dict(
     ai_image=None,
     card_file=None,
     dev_key_entered=False,
-    # NEW for refresh flow:
+    # refresh-toast plumbing
     prev_credits=0,
     thanks_shown=False,
-    latest_credit_delta=0,   # how many credits were just added (for the toast)
-    saw_thanks=True,         # default True so it doesn’t pop on first render
+    latest_credit_delta=0,
+    saw_thanks=True,  # default True so it doesn’t pop on first load
 ).items():
     st.session_state.setdefault(k, v)
 
@@ -73,7 +71,6 @@ if not st.session_state.device_id:
 # ---------------------------
 def _send_otp_email(to_email: str, code: str) -> bool:
     subject = f"{APP_NAME}: Your OTP Code"
-    # FIX: correct newline in f-string
     body = f"Your one-time password is: {code}\nThis code expires in 10 minutes."
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -104,50 +101,41 @@ def _current_user_fields():
     }
 
 
-# --- credits refresh + one-time thanks toast (define BEFORE usage) ---
+# --- credits refresh + one-time thanks toast ---
 def refresh_credits() -> int:
     """
-    Pulls latest credits from Airtable for the logged-in user.
-    Returns the new balance (int) and updates session's latest_credit_delta.
+    Pull latest credits and return the positive delta.
+    Updates st.session_state.ai_credits with the new value.
     """
-    email = st.session_state.get("otp_email")
+    email = (st.session_state.get("otp_email")
+             or st.session_state.get("normalized_email")
+             or "").strip().lower()
     if not email:
         st.session_state.latest_credit_delta = 0
-        return int(st.session_state.get("_last_known_credits") or 0)
+        return 0
 
     rec = get_user_by_email(email)
     if not rec:
         st.session_state.latest_credit_delta = 0
-        return int(st.session_state.get("_last_known_credits") or 0)
+        return 0
 
     fields = (rec.get("fields") or {})
-    new_bal = int(fields.get("ai_credits", 0) or 0)
-    old_bal = int(st.session_state.get("_last_known_credits") or 0)
-    delta = max(0, new_bal - old_bal)
+    old = int(st.session_state.get("ai_credits") or 0)   # what UI last showed
+    new = int(fields.get("ai_credits", 0) or 0)          # fresh from Airtable
+    delta = max(0, new - old)
+
+    st.session_state.ai_credits = new
     st.session_state.latest_credit_delta = delta
-    return new_bal
+    return delta
 
 
 def thanks_for_support_if_any():
-    """
-    Shows a one-time toast if latest_credit_delta > 0 and we haven't shown it yet.
-    """
     if st.session_state.get("latest_credit_delta", 0) and not st.session_state.get("saw_thanks", True):
         st.success(
             f"🎉 Thanks for your support! We just added **{st.session_state.latest_credit_delta}** credits to your account."
         )
         st.session_state.saw_thanks = True
 
-
-
-def _current_user_fields():
-    if not st.session_state.otp_email:
-        return {"ai_credits": 0, "free_used": False}
-    rec = get_user_by_email(st.session_state.otp_email)
-    if not rec:
-        return {"ai_credits": 0, "free_used": False}
-    f = rec.get("fields", {}) or {}
-    return {"ai_credits": f.get("ai_credits", 0) or 0, "free_used": bool(f.get("free_used", False))}
 
 def ui_otp_panel():
     st.subheader("🔐 Sign in to continue")
@@ -158,17 +146,19 @@ def ui_otp_panel():
         key="email_input"
     ).strip()
 
-    # ✅ define both columns before using them
     colA, colB = st.columns([1, 1])
 
     with colA:
-        disabled = st.session_state.otp_cooldown_sec > 0
-        btn_label = "Resend code" if st.session_state.otp_email else "Send code"
+        cool = int(st.session_state.get("otp_cooldown_sec", 0) or 0)
+        btn_label = "Send code" if not st.session_state.otp_email else "Resend code"
+        if cool > 0:
+            btn_label = f"{btn_label} ({cool}s)"
+        disabled = cool > 0
+
         if st.button(btn_label, disabled=disabled, use_container_width=True, key="btn_send_code"):
             if not email or "@" not in email:
                 st.error("Enter a valid email.")
             else:
-                # Guard Airtable errors so Streamlit doesn't bomb out
                 try:
                     allowed = can_send_otp(email)
                 except Exception as e:
@@ -189,6 +179,7 @@ def ui_otp_panel():
                         st.success("Code sent. Check your inbox.")
                         st.session_state.otp_email = email
                         st.session_state.otp_cooldown_sec = 30
+                        st.rerun()
 
     with colB:
         otp = st.text_input("6-digit code", max_chars=6, key="otp_input")
@@ -203,10 +194,11 @@ def ui_otp_panel():
             else:
                 st.error(msg)
 
-    if st.session_state.otp_cooldown_sec > 0:
-        st.info(f"You can request a new code in {st.session_state.otp_cooldown_sec}s.")
-        st.session_state.otp_cooldown_sec -= 1
+    # countdown tick
+    if st.session_state.get("otp_cooldown_sec", 0) > 0:
+        st.session_state.otp_cooldown_sec = max(0, int(st.session_state.otp_cooldown_sec) - 1)
         st.rerun()
+
 
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
@@ -232,7 +224,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 if not dev_open:
-    st.markdown(f'<a class="dev-hitbox" href="?{urlencode({**st.query_params, **{"dev":"1"}})}"></a>', unsafe_allow_html=True)
+    st.markdown(f'<a class="dev-hitbox" href="?{urlencode({**st.query_params, **{"dev": "1"}})}"></a>', unsafe_allow_html=True)
 else:
     close_params = dict(st.query_params); close_params.pop("dev", None)
     st.markdown(f'<div class="dev-drawer"><div class="dev-label">Developer</div>', unsafe_allow_html=True)
@@ -280,8 +272,9 @@ norm_email = normalize_email(st.session_state.otp_email or "")
 user_summary = _current_user_fields()
 credits = user_summary["ai_credits"]
 free_used = user_summary["free_used"]
-st.session_state["_last_known_credits"] = int(credits or 0)
 
+# keep session truth in sync so delta compares correctly later
+st.session_state.ai_credits = int(credits or 0)
 
 if credits <= 0:
     st.info("You're out of credits. You get 1 free AI portrait per account. Need more?")
@@ -297,8 +290,6 @@ if credits <= 0:
         """,
         unsafe_allow_html=True
     )
-# Continue to render the currently selected villain and portrait/card as usual — do not exit early here.
-
 
 title_text = "🌙 AI Villain Generator"
 if is_dev:
@@ -310,18 +301,13 @@ sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbs
 st.markdown(sub_line, unsafe_allow_html=True)
 
 # --- Refresh credits button (manual) ---
-if st.button("🔄 Refresh Credits", key="refresh_credits"):
-    new_bal = refresh_credits()
-    # If anything changed, prep the one-time thanks and rerun
-    if new_bal != (credits or 0):
-        # set flags so the toast will show once after rerun
-        if st.session_state.latest_credit_delta > 0:
-            st.session_state.saw_thanks = False
-        # update the known value so UI shows fresh on next render
-        st.session_state["_last_known_credits"] = int(new_bal or 0)
+if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
+    delta = refresh_credits()
+    if delta > 0:
+        st.session_state.saw_thanks = False   # arm toast
     st.rerun()
 
-# Right after the button, show one-time toast if applicable
+# show the one-time toast (runs every render; gated by flags)
 thanks_for_support_if_any()
 
 # --- Persistent Out-of-credits banner (with yellow BMC button) ---
@@ -348,7 +334,6 @@ if free_used and credits <= 0 and not is_dev:
 style = st.selectbox("Choose a style", [
     "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
 ])
-
 theme = STYLE_THEMES.get(style, {"accent": "#ff4b4b", "text": "#ffffff"})
 
 # ---------------------------
