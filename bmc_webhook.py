@@ -1,10 +1,9 @@
 # --- Upload support imports (step 2A) ---
-import os, uuid, time, imghdr, pathlib
+import os, uuid, time, pathlib
 from typing import Optional
 from fastapi import UploadFile, File, Header, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
-
 
 import os
 import re
@@ -24,8 +23,10 @@ import smtplib, ssl
 from email.mime.text import MIMEText
 
 app = FastAPI(title="AI Villain — BMC Webhook")
+
 # --- Upload config (step 2A) ---
 UPLOAD_API_TOKEN = os.getenv("UPLOAD_API_TOKEN", "")
+# Use a persistent disk path in Render (add a Disk mounted here)
 UPLOAD_DIR       = os.getenv("UPLOAD_DIR", "/var/data/uploads")
 BASE_URL         = os.getenv("BASE_URL", "https://ai-villain-bmc-webhook.onrender.com")
 
@@ -34,7 +35,6 @@ pathlib.Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
 # Serve uploaded files at /static (e.g., https://.../static/YYYY/MM/<uuid>.png)
 app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
-
 
 # ==== ENV / Config ====
 BMC_WEBHOOK_SECRET = os.getenv("BMC_WEBHOOK_SECRET", "")
@@ -69,7 +69,6 @@ SHOP_TITLE_CREDIT_MAP: Dict[str, int] = {
 # Parse titles like “4 credits”, case-insensitive
 TITLE_CREDIT_REGEX = os.getenv("BMC_TITLE_CREDIT_REGEX", r"^\s*(\d+)\s*credits?\b")
 
-
 # ---------- helpers ----------
 def _pick(obj: dict, keys):
     for k in keys:
@@ -80,11 +79,9 @@ def _pick(obj: dict, keys):
             return v
     return None
 
-
 def _from_candidates(payload: Dict[str, Any]):
     # Some BMC payloads nest under "data"
     return [payload] + ([payload["data"]] if isinstance(payload.get("data"), dict) else [])
-
 
 def _extract_email(payload: Dict[str, Any]) -> Optional[str]:
     for obj in _from_candidates(payload):
@@ -92,7 +89,6 @@ def _extract_email(payload: Dict[str, Any]) -> Optional[str]:
         if isinstance(v, str) and "@" in v:
             return v.lower()
     return None
-
 
 def _extract_quantity(payload: Dict[str, Any]) -> int:
     for obj in _from_candidates(payload):
@@ -104,7 +100,6 @@ def _extract_quantity(payload: Dict[str, Any]) -> int:
                 pass
     return 1
 
-
 def _extract_shop_title(payload: Dict[str, Any]) -> Optional[str]:
     for obj in _from_candidates(payload):
         v = _pick(obj, ["product_name", "title", "extra_title", "name"])
@@ -112,14 +107,12 @@ def _extract_shop_title(payload: Dict[str, Any]) -> Optional[str]:
             return v
     return None
 
-
 def _extract_membership_name(payload: Dict[str, Any]) -> Optional[str]:
     for obj in _from_candidates(payload):
         v = _pick(obj, ["membership_name", "level_name", "plan_name", "membershipLevel"])
         if isinstance(v, str):
             return v
     return None
-
 
 def _extract_coffees(payload: Dict[str, Any]) -> int:
     for obj in _from_candidates(payload):
@@ -130,7 +123,6 @@ def _extract_coffees(payload: Dict[str, Any]) -> int:
             except Exception:
                 pass
     return 0
-
 
 def _credits_for_shop(title: str, quantity: int) -> Optional[int]:
     title_norm = title.strip().lower()
@@ -146,14 +138,12 @@ def _credits_for_shop(title: str, quantity: int) -> Optional[int]:
             return None
     return None
 
-
 def _credits_for_membership(name: str) -> Optional[int]:
     name_norm = name.strip().lower()
     for k, v in MEMBERSHIP_CREDIT_MAP.items():
         if k.lower() == name_norm:
             return v
     return None
-
 
 def _send_receipt(to_email: str, credited: int):
     if not SEND_RECEIPT:
@@ -171,12 +161,10 @@ def _send_receipt(to_email: str, credited: int):
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
 
-
 # ---------- routes ----------
 @app.get("/health")
 def health():
     return {"ok": True}
-
 
 @app.post("/webhooks/bmc")
 async def bmc_webhook(request: Request):
@@ -259,11 +247,6 @@ async def bmc_webhook(request: Request):
             pass
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
 
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("bmc_webhook:app", host="0.0.0.0", port=port, reload=True)
-
 # === Step 2A: image upload endpoint ===
 
 ALLOWED_EXT = {"png", "jpg", "jpeg", "webp"}
@@ -277,14 +260,18 @@ def _auth_upload(token: Optional[str]):
     if token != UPLOAD_API_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-def _pick_ext(filename: str, content: bytes) -> str:
+def _pick_ext(filename: str, content_type: Optional[str]) -> str:
+    """
+    Decide file extension using MIME type first (from UploadFile.content_type),
+    falling back to filename extension. Avoids imghdr (removed in Python 3.13).
+    """
+    mapping = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+    if content_type in mapping:
+        return mapping[content_type]
     ext = (filename.split(".")[-1] or "").lower()
-    if ext not in ALLOWED_EXT:
-        guess = imghdr.what(None, h=content)
-        if guess == "jpeg": return "jpg"
-        if guess in {"png", "jpg", "jpeg", "webp"}: return guess
-        return "png"
-    return "jpg" if ext == "jpeg" else ext
+    if ext == "jpeg":
+        ext = "jpg"
+    return ext if ext in ALLOWED_EXT else "png"
 
 @app.post("/uploads")
 async def upload_image(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
@@ -302,7 +289,7 @@ async def upload_image(file: UploadFile = File(...), authorization: Optional[str
     out_dir = pathlib.Path(UPLOAD_DIR) / subdir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    ext = _pick_ext(file.filename or "image.png", data)
+    ext = _pick_ext(file.filename or "image.png", file.content_type)
     name = f"{uuid.uuid4().hex}.{ext}"
     out_path = out_dir / name
 
@@ -311,3 +298,7 @@ async def upload_image(file: UploadFile = File(...), authorization: Optional[str
 
     url = f"{BASE_URL}/static/{subdir}/{name}"
     return JSONResponse({"ok": True, "url": url})
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("bmc_webhook:app", host="0.0.0.0", port=port, reload=True)
