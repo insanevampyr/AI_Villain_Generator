@@ -40,8 +40,8 @@ def _eq_lower_formula(field: str, value: str) -> str:
     return f"LOWER({{{field}}})=LOWER('{_escape_squote(value or '')}')"
 
 def _iso_utc(ts: int) -> str:
-    # Airtable Date field expects an ISO8601 string in UTC
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
 
 def normalize_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
@@ -51,6 +51,25 @@ def _hash_otp(email_norm: str, code: str) -> str:
     h = hashlib.sha256()
     h.update((OTP_HASH_SALT + "|" + email_norm + "|" + str(code)).encode("utf-8"))
     return h.hexdigest()
+
+def _parse_iso_to_epoch(s: str) -> int:
+    """
+    Parse ISO-ish strings Airtable returns (with or without milliseconds/Z).
+    Returns epoch seconds or 0 on failure.
+    """
+    if not s:
+        return 0
+    s = s.strip()
+    try:
+        # 2025-08-14T12:34:56Z
+        return int(time.mktime(time.strptime(s.replace(".000", "").replace("Z",""), "%Y-%m-%dT%H:%M:%S")))
+    except Exception:
+        try:
+            # 2025-08-14T12:34:56.123Z -> drop millis
+            core = s.split(".")[0]
+            return int(time.mktime(time.strptime(core, "%Y-%m-%dT%H:%M:%S")))
+        except Exception:
+            return 0
 
 
 # ===== HTTP wrappers =====
@@ -235,57 +254,59 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     }
     return _create(OTPS_TABLE, fields)
 
-
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     """
-    Checks the latest active OTP for the given email. Verifies via otp_hash.
-    On success, marks status='Used'. On failure, increments attempts.
+    Fetch newest OTPs for email w/ status='Active', then check expiry in Python and compare hash.
+    Marks Used on success; increments attempts on failure.
     """
     e = normalize_email(email)
-    now_iso = _iso_utc(int(time.time()))
-
-    # Only active, non-expired records for this email
-    formula = (
-        "AND("
-        f"{_eq_lower_formula('email', e)},"
-        "{status}='Active',"
-        f"IS_AFTER({{expires_at}}, DATETIME_PARSE('{now_iso}', 'YYYY-MM-DDTHH:MM:SSZ'))"
-        ")"
-    )
+    # Only filter by email + status (no date math in Airtable)
+    formula = f"AND({_eq_lower_formula('email', e)}, {{status}}='Active')"
 
     recs = _list(
         OTPS_TABLE,
         filterByFormula=formula,
         maxRecords=5,
+        sort=[{"field": "createdTime", "direction": "desc"}],  # sort by Airtable’s created timestamp
     )
     if not recs:
         return False, "No active code. Please request a new one."
 
-    # Take newest by createdTime
-    rec = max(recs, key=lambda r: r.get("createdTime", ""))
+    now = int(time.time())
 
-    fields = rec.get("fields", {}) or {}
-    attempts = int(fields.get("attempts", 0) or 0)
-    if attempts >= OTP_MAX_ATTEMPTS:
-        return False, "Too many attempts. Request a new code."
+    # Walk newest → oldest and pick the first unexpired one
+    for rec in recs:
+        fields = rec.get("fields", {}) or {}
+        exp_iso = fields.get("expires_at", "")  # must be a Date **with time** in Airtable
+        exp_epoch = _parse_iso_to_epoch(exp_iso)
+        if exp_epoch <= now:
+            continue  # expired, try older
 
-    expected_hash = fields.get("otp_hash", "")
-    if not expected_hash:
-        return False, "No active code. Please request a new one."
+        attempts = int(fields.get("attempts", 0) or 0)
+        if attempts >= OTP_MAX_ATTEMPTS:
+            continue  # too many tries, treat as inactive
 
-    given_hash = _hash_otp(e, str(code).strip())
-    if given_hash == expected_hash:
-        try:
-            _update(OTPS_TABLE, rec["id"], {"status": "Used"})
-        except Exception:
-            pass
-        return True, "Verified."
-    else:
+        expected_hash = fields.get("otp_hash", "")
+        if not expected_hash:
+            continue
+
+        given_hash = _hash_otp(e, str(code).strip())
+        if given_hash == expected_hash:
+            try:
+                _update(OTPS_TABLE, rec["id"], {"status": "Used"})
+            except Exception:
+                pass
+            return True, "Verified."
+
+        # wrong code → bump attempts
         try:
             _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
         except Exception:
             pass
+
         return False, "Incorrect code."
+
+    return False, "No active code. Please request a new one."
 
 
 # ===== Tokens (optional) =====
