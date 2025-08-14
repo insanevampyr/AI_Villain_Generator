@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+import json
 import os
 import time
 import hashlib
@@ -14,8 +16,10 @@ AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "")
 USERS_TABLE      = os.getenv("AIRTABLE_USERS_TABLE", "Users")
 OTPS_TABLE       = os.getenv("AIRTABLE_OTPS_TABLE", "OTPs")
+AIRTABLE_VILLAINS_TABLE = os.getenv("AIRTABLE_VILLAINS_TABLE", "Villains")
 TOKENS_TABLE     = os.getenv("AIRTABLE_TOKENS_TABLE", "Tokens")
 BMC_LOG_TABLE    = os.getenv("AIRTABLE_BMC_LOG_TABLE", "BMC_Events")
+
 
 OTP_TTL_SECONDS     = int(os.getenv("OTP_TTL_SECONDS", "600"))   # 10 min default
 OTP_RESEND_COOLDOWN = int(os.getenv("OTP_RESEND_COOLDOWN", "60"))
@@ -342,3 +346,149 @@ def record_bmc_event(status: str, payload: Dict[str, Any], added_credits: int, e
         )
     except Exception:
         pass
+
+# =========================
+# Villain Save/Restore/Share
+# =========================
+
+def _now_unix() -> int:
+    return int(time.time())
+
+def create_villain_record(
+    owner_email: str,
+    villain_json: dict,
+    style: str,
+    image_url: str = None,
+    card_url: str = None,
+    version: int = 1,
+) -> str:
+    """
+    Create a Villains row. If image_url / card_url are provided, Airtable will fetch them
+    from our temporary /uploads URL and store them as attachments.
+    Returns the new record id.
+    """
+    email = normalize_email(owner_email or "")
+    if not email:
+        raise ValueError("owner_email required")
+
+    fields = {
+        "owner_email": email,
+        "villain_json": json.dumps(villain_json, ensure_ascii=False),
+        "style": style or "",
+        "version": int(version or 1),
+        "shared": False,
+        "created_unix": _now_unix(),
+        "updated_unix": _now_unix(),
+    }
+
+    # Attachment hand-off: Airtable pulls the bytes from these URLs and stores them
+    attach_image = []
+    attach_card = []
+    if image_url:
+        attach_image = [{"url": image_url}]
+    if card_url:
+        attach_card = [{"url": card_url}]
+    if attach_image:
+        fields["image"] = attach_image
+    if attach_card:
+        fields["card_image"] = attach_card
+
+    rec = _create(AIRTABLE_VILLAINS_TABLE, fields)
+    return rec.get("id")
+
+def update_villain_images(record_id: str, image_url: str = None, card_url: str = None) -> None:
+    """
+    Replace/append attachments for image/card_image on an existing record.
+    Pass None to leave a field unchanged.
+    """
+    if not record_id:
+        raise ValueError("record_id required")
+
+    fields = {"updated_unix": _now_unix()}
+    if image_url:
+        fields["image"] = [{"url": image_url}]
+    if card_url:
+        fields["card_image"] = [{"url": card_url}]
+
+    if len(fields) > 1:  # something to update besides updated_unix
+        _update(AIRTABLE_VILLAINS_TABLE, record_id, fields)
+
+def list_villains(owner_email: str, limit: int = 20):
+    """
+    Return recent villains for this owner. Most recent first.
+    """
+    email = normalize_email(owner_email or "")
+    if not email:
+        return []
+
+    # Prefer updated_unix desc; fallback to createdTime if the numeric field is missing.
+    try:
+        recs = _list(
+            AIRTABLE_VILLAINS_TABLE,
+            filterByFormula=f"LOWER({{owner_email}})=LOWER('{email}')",
+            maxRecords=int(limit or 20),
+            sort=[{"field": "updated_unix", "direction": "desc"}],
+        )
+    except Exception:
+        recs = _list(
+            AIRTABLE_VILLAINS_TABLE,
+            filterByFormula=f"LOWER({{owner_email}})=LOWER('{email}')",
+            maxRecords=int(limit or 20),
+            sort=[{"field": "createdTime", "direction": "desc"}],
+        )
+    return recs or []
+
+def get_villain(record_id: str) -> dict:
+    """
+    Retrieve one villain record by id.
+    """
+    if not record_id:
+        return {}
+    try:
+        url = f"{API_URL}/{AIRTABLE_VILLAINS_TABLE}/{record_id}"
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        return r.json() or {}
+    except Exception:
+        return {}
+
+def ensure_share_token(record_id: str) -> str:
+    """
+    Generate & set a share_token (url-safe) and mark shared=True if missing.
+    Returns the active token.
+    """
+    if not record_id:
+        raise ValueError("record_id required")
+
+    rec = get_villain(record_id) or {}
+    fields = rec.get("fields", {}) or {}
+    token = (fields.get("share_token") or "").strip()
+
+    if not token:
+        # ~22 chars url-safe token
+        token = secrets.token_urlsafe(16)
+        _update(
+            AIRTABLE_VILLAINS_TABLE,
+            record_id,
+            {"share_token": token, "shared": True, "updated_unix": _now_unix()},
+        )
+    elif not fields.get("shared", False):
+        _update(
+            AIRTABLE_VILLAINS_TABLE,
+            record_id,
+            {"shared": True, "updated_unix": _now_unix()},
+        )
+
+    return token
+
+def unshare_villain(record_id: str) -> None:
+    """
+    Mark a villain as not shared. (Token stays for history; you can clear it if you prefer.)
+    """
+    if not record_id:
+        return
+    _update(
+        AIRTABLE_VILLAINS_TABLE,
+        record_id,
+        {"shared": False, "updated_unix": _now_unix()},
+    )
