@@ -50,6 +50,7 @@ SHOP_TITLE_CREDIT_MAP: Dict[str, int] = {
 # Parse titles like “4 credits”, case-insensitive
 TITLE_CREDIT_REGEX = os.getenv("BMC_TITLE_CREDIT_REGEX", r"^\s*(\d+)\s*credits?\b")
 
+
 # ---------- helpers ----------
 def _pick(obj: dict, keys):
     for k in keys:
@@ -60,9 +61,11 @@ def _pick(obj: dict, keys):
             return v
     return None
 
+
 def _from_candidates(payload: Dict[str, Any]):
     # Some BMC payloads nest under "data"
     return [payload] + ([payload["data"]] if isinstance(payload.get("data"), dict) else [])
+
 
 def _extract_email(payload: Dict[str, Any]) -> Optional[str]:
     for obj in _from_candidates(payload):
@@ -70,6 +73,7 @@ def _extract_email(payload: Dict[str, Any]) -> Optional[str]:
         if isinstance(v, str) and "@" in v:
             return v.lower()
     return None
+
 
 def _extract_quantity(payload: Dict[str, Any]) -> int:
     for obj in _from_candidates(payload):
@@ -81,6 +85,7 @@ def _extract_quantity(payload: Dict[str, Any]) -> int:
                 pass
     return 1
 
+
 def _extract_shop_title(payload: Dict[str, Any]) -> Optional[str]:
     for obj in _from_candidates(payload):
         v = _pick(obj, ["product_name", "title", "extra_title", "name"])
@@ -88,12 +93,14 @@ def _extract_shop_title(payload: Dict[str, Any]) -> Optional[str]:
             return v
     return None
 
+
 def _extract_membership_name(payload: Dict[str, Any]) -> Optional[str]:
     for obj in _from_candidates(payload):
         v = _pick(obj, ["membership_name", "level_name", "plan_name", "membershipLevel"])
         if isinstance(v, str):
             return v
     return None
+
 
 def _extract_coffees(payload: Dict[str, Any]) -> int:
     for obj in _from_candidates(payload):
@@ -105,11 +112,12 @@ def _extract_coffees(payload: Dict[str, Any]) -> int:
                 pass
     return 0
 
+
 def _credits_for_shop(title: str, quantity: int) -> Optional[int]:
-    # 1) exact title override
-    if title in SHOP_TITLE_CREDIT_MAP:
-        return SHOP_TITLE_CREDIT_MAP[title] * max(1, quantity)
-    # 2) regex parse “N credits”
+    title_norm = title.strip().lower()
+    for k, v in SHOP_TITLE_CREDIT_MAP.items():
+        if k.lower() == title_norm:
+            return v * max(1, quantity)
     m = re.match(TITLE_CREDIT_REGEX, title, flags=re.IGNORECASE)
     if m:
         try:
@@ -119,8 +127,14 @@ def _credits_for_shop(title: str, quantity: int) -> Optional[int]:
             return None
     return None
 
+
 def _credits_for_membership(name: str) -> Optional[int]:
-    return MEMBERSHIP_CREDIT_MAP.get(name)
+    name_norm = name.strip().lower()
+    for k, v in MEMBERSHIP_CREDIT_MAP.items():
+        if k.lower() == name_norm:
+            return v
+    return None
+
 
 def _send_receipt(to_email: str, credited: int):
     if not SEND_RECEIPT:
@@ -138,19 +152,19 @@ def _send_receipt(to_email: str, credited: int):
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
 
+
 # ---------- routes ----------
 @app.get("/health")
 def health():
     return {"ok": True}
 
+
 @app.post("/webhooks/bmc")
 async def bmc_webhook(request: Request):
-    # Secret check
     secret = request.headers.get("X-BMC-Secret") or request.query_params.get("secret")
     if not secret or secret != BMC_WEBHOOK_SECRET:
         raise HTTPException(status_code=401, detail="Invalid secret")
 
-    # Parse payload
     try:
         raw = await request.body()
         text = raw.decode("utf-8") if raw else "{}"
@@ -164,12 +178,17 @@ async def bmc_webhook(request: Request):
             record_bmc_event(status="ignored_no_email", payload=payload, added_credits=0)
             raise HTTPException(status_code=422, detail="No email in payload")
 
-        # ---- accumulate credits from ALL recognized signals ----
         total = 0
         breakdown: Dict[str, int] = {}
 
         # Membership
         membership_name = _extract_membership_name(payload)
+        if not membership_name:
+            # Sometimes membership level is in product_name
+            possible_title = _extract_shop_title(payload)
+            if possible_title and possible_title.lower() in [k.lower() for k in MEMBERSHIP_CREDIT_MAP.keys()]:
+                membership_name = possible_title
+
         if membership_name:
             mcred = _credits_for_membership(membership_name) or 0
             if mcred > 0:
@@ -179,7 +198,7 @@ async def bmc_webhook(request: Request):
 
         # Shop
         title = _extract_shop_title(payload)
-        if title:
+        if title and title.lower() not in [k.lower() for k in MEMBERSHIP_CREDIT_MAP.keys()]:
             qty = _extract_quantity(payload)
             scred = _credits_for_shop(title, qty) or 0
             if scred > 0:
@@ -190,6 +209,9 @@ async def bmc_webhook(request: Request):
 
         # Coffees (donations)
         coffees = _extract_coffees(payload)
+        if coffees == 0 and title and "coffee" in title.lower():
+            coffees = _extract_quantity(payload)
+
         if coffees and CREDITS_PER_COFFEE > 0:
             ccred = coffees * CREDITS_PER_COFFEE
             if ccred > 0:
@@ -204,7 +226,6 @@ async def bmc_webhook(request: Request):
             _send_receipt(email, total)
             return {"ok": True, "email": email, "added_credits": total, "breakdown": breakdown}
 
-        # Nothing matched
         record_bmc_event("ignored_unhandled", payload, 0, email=email)
         return {"ok": True, "info": "No credit rule matched", "email": email}
 
@@ -218,6 +239,7 @@ async def bmc_webhook(request: Request):
         except Exception:
             pass
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
