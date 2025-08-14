@@ -3,11 +3,14 @@ import re
 import json
 from typing import Any, Dict, Optional
 import logging, traceback
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, Request, HTTPException
 import uvicorn
 
-from airtable_utils import add_credits_by_email, record_bmc_event
+from airtable_utils import add_credits_by_any_email, record_bmc_event
 from email.utils import formataddr
 import smtplib, ssl
 from email.mime.text import MIMEText
@@ -94,7 +97,7 @@ def _extract_membership_name(payload: Dict[str, Any]) -> Optional[str]:
 
 def _extract_coffees(payload: Dict[str, Any]) -> int:
     for obj in _from_candidates(payload):
-        v = _pick(obj, ["support_coffees", "coffees", "coffee"])
+        v = _pick(obj, ["support_coffees", "coffees", "coffee", "coffee_count"])
         if v is not None:
             try:
                 return int(str(v).strip())
@@ -172,7 +175,7 @@ async def bmc_webhook(request: Request):
             if mcred > 0:
                 total += mcred
                 breakdown["membership"] = mcred
-                breakdown["membership_name"] = membership_name  # helpful in response
+                breakdown["membership_name"] = membership_name
 
         # Shop
         title = _extract_shop_title(payload)
@@ -196,12 +199,8 @@ async def bmc_webhook(request: Request):
                 breakdown["credits_per_coffee"] = CREDITS_PER_COFFEE
 
         if total > 0:
-            # single Airtable write
-            add_credits_by_email(email=email, credits_to_add=total)
-
-            # log with breakdown bundled into payload preview
+            add_credits_by_any_email(email, total)
             record_bmc_event("credited_multi", {"payload": payload, "credit_breakdown": breakdown}, total, email=email)
-
             _send_receipt(email, total)
             return {"ok": True, "email": email, "added_credits": total, "breakdown": breakdown}
 

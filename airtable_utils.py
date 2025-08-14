@@ -1,7 +1,35 @@
 """
-airtable_utils.py — now aligned to ai_credits + free_used columns in Airtable.
-"""
+airtable_utils.py — Airtable helpers for AI Villain Generator.
 
+Columns expected in Airtable:
+Users:
+  - email (primary)
+  - ai_credits (number)
+  - free_used (checkbox/bool)
+  - payment_emails (optional, comma-separated additional payer emails)
+  - first_device_id (optional)
+  - first_ip (optional)
+
+OTPs:
+  - email
+  - code
+  - created_unix (number)
+  - expires_unix (number)
+  - attempts (number)
+
+Tokens (optional):
+  - code
+  - redeemed_by
+  - redeemed_at
+  - is_redeemed
+
+BMC_Events (optional log table):
+  - status
+  - email
+  - added_credits
+  - raw_payload (long text)
+  - ts_unix
+"""
 from __future__ import annotations
 import os
 import time
@@ -58,6 +86,23 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     recs = _list(USERS_TABLE, filterByFormula=f"LOWER({{email}})=LOWER('{e}')", maxRecords=1)
     return recs[0] if recs else None
 
+def find_user_by_any_email(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Find a user where either {email} matches OR the email appears inside
+    {payment_emails} (comma-separated). Case-insensitive.
+    """
+    e = _escape(normalize_email(email))
+    if not e:
+        return None
+    formula = (
+        f"OR("
+        f"LOWER({{email}})=LOWER('{e}'),"
+        f"FIND(LOWER('{e}'), LOWER({{payment_emails}} & ''))>0"
+        f")"
+    )
+    recs = _list(USERS_TABLE, filterByFormula=formula, maxRecords=1)
+    return recs[0] if recs else None
+
 def create_user(email: str, extra_fields: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     fields = {"email": normalize_email(email)}
     if extra_fields:
@@ -91,6 +136,23 @@ def add_credits_by_email(email: str, credits_to_add: int) -> bool:
     set_user_fields(rec["id"], {"ai_credits": cur + int(credits_to_add)})
     return True
 
+def add_credits_by_any_email(any_email: str, credits_to_add: int) -> bool:
+    """
+    Credit the account whose primary email OR payment_emails contains any_email.
+    Falls back to creating a user with any_email if no match is found.
+    """
+    if credits_to_add <= 0:
+        return False
+
+    rec = find_user_by_any_email(any_email)
+    if rec is None:
+        rec = upsert_user(any_email)
+
+    fields = rec.get("fields", {})
+    cur = int(fields.get("ai_credits", 0) or 0)
+    set_user_fields(rec["id"], {"ai_credits": cur + int(credits_to_add)})
+    return True
+
 def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str] = None, ip: Optional[str] = None) -> Tuple[bool, str]:
     rec = upsert_user(user_email)
     fields = rec.get("fields", {})
@@ -116,7 +178,12 @@ def check_and_consume_free_or_credit(user_email: str, device_id: Optional[str] =
 def can_send_otp(email: str) -> bool:
     email = normalize_email(email)
     e = _escape(email)
-    recs = _list(OTPS_TABLE, filterByFormula=f"LOWER({{email}})=LOWER('{e}')", maxRecords=1, sort=[{"field":"created_unix","direction":"desc"}])
+    recs = _list(
+        OTPS_TABLE,
+        filterByFormula=f"LOWER({{email}})=LOWER('{e}')",
+        maxRecords=1,
+        sort=[{"field": "created_unix", "direction": "desc"}],
+    )
     if not recs:
         return True
     last = recs[0].get("fields", {})
@@ -137,7 +204,12 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     e = _escape(normalize_email(email))
     now = int(time.time())
-    recs = _list(OTPS_TABLE, filterByFormula=f"AND(LOWER({{email}})=LOWER('{e}'), {{expires_unix}} >= {now})", maxRecords=1, sort=[{"field":"created_unix","direction":"desc"}])
+    recs = _list(
+        OTPS_TABLE,
+        filterByFormula=f"AND(LOWER({{email}})=LOWER('{e}'), {{expires_unix}} >= {now})",
+        maxRecords=1,
+        sort=[{"field": "created_unix", "direction": "desc"}],
+    )
     if not recs:
         return False, "No active code. Please request a new one."
     rec = recs[0]
@@ -146,13 +218,20 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     if attempts >= OTP_MAX_ATTEMPTS:
         return False, "Too many attempts. Request a new code."
     if str(fields.get("code", "")).strip() == str(code).strip():
-        set_user_fields(rec["id"], {"expires_unix": 0})
+        # invalidate by setting expiry to 0
+        try:
+            _update(OTPS_TABLE, rec["id"], {"expires_unix": 0})
+        except Exception:
+            pass
         return True, "Verified."
     else:
-        _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
+        try:
+            _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
+        except Exception:
+            pass
         return False, "Incorrect code."
 
-# ---- Tokens ----
+# ---- Tokens (optional) ----
 def get_token(code: str) -> Optional[Dict[str, Any]]:
     c = _escape(code)
     recs = _list(TOKENS_TABLE, filterByFormula=f"LOWER({{code}})=LOWER('{c}')", maxRecords=1)
@@ -179,4 +258,5 @@ def record_bmc_event(status: str, payload: Dict[str, Any], added_credits: int, e
             "ts_unix": int(time.time()),
         })
     except Exception:
+        # Never raise from logging
         pass
