@@ -1,45 +1,32 @@
-# --- Upload support imports (step 2A) ---
+# --- Upload support imports (Py 3.13 safe) ---
 import os, uuid, time, pathlib
-from typing import Optional
-from fastapi import UploadFile, File, Header, HTTPException
+from typing import Optional, Any, Dict
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Header
 from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 
-import os
-import re
-import json
-from typing import Any, Dict, Optional
-import logging, traceback
+import re, json, logging, traceback, smtplib, ssl
+from email.utils import formataddr
+from email.mime.text import MIMEText
 from dotenv import load_dotenv
+
+from airtable_utils import add_credits_by_any_email, record_bmc_event
 
 load_dotenv()
 
-from fastapi import FastAPI, Request, HTTPException
-import uvicorn
-
-from airtable_utils import add_credits_by_any_email, record_bmc_event
-from email.utils import formataddr
-import smtplib, ssl
-from email.mime.text import MIMEText
-
 app = FastAPI(title="AI Villain — BMC Webhook")
 
-# --- Upload config (step 2A) ---
+# ===== Upload config =====
 UPLOAD_API_TOKEN = os.getenv("UPLOAD_API_TOKEN", "")
-# Use a persistent disk path in Render (add a Disk mounted here)
-UPLOAD_DIR       = os.getenv("UPLOAD_DIR", "/var/data/uploads")
+# Free plan: use /tmp/uploads (no persistent disk required)
+UPLOAD_DIR       = os.getenv("UPLOAD_DIR", "/tmp/uploads")
 BASE_URL         = os.getenv("BASE_URL", "https://ai-villain-bmc-webhook.onrender.com")
 
-# Ensure the upload directory exists
 pathlib.Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-
-# Serve uploaded files at /static (e.g., https://.../static/YYYY/MM/<uuid>.png)
 app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
 
-# ==== ENV / Config ====
+# ===== Webhook config =====
 BMC_WEBHOOK_SECRET = os.getenv("BMC_WEBHOOK_SECRET", "")
-
-# Credits per “coffee” donation (used in addition to shop/membership if present)
 CREDITS_PER_COFFEE = int(os.getenv("BMC_CREDITS_PER_COFFEE", "0"))
 
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
@@ -47,9 +34,8 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
-SEND_RECEIPT = False  # flip to True if you want auto email receipts
+SEND_RECEIPT = False  # set True if you want email receipts
 
-# === MEMBERSHIP → credits (exact names from your page) ===
 MEMBERSHIP_CREDIT_MAP: Dict[str, int] = {
     "Starter Baddie": 15,
     "Street Thug": 30,
@@ -61,15 +47,13 @@ MEMBERSHIP_CREDIT_MAP: Dict[str, int] = {
     "Supreme Overlord": 5000,
 }
 
-# === SHOP item overrides (optional). Regex handles “N credits” automatically.
 SHOP_TITLE_CREDIT_MAP: Dict[str, int] = {
-    # "4 credits": 4,
+    # Optional explicit overrides
 }
 
-# Parse titles like “4 credits”, case-insensitive
 TITLE_CREDIT_REGEX = os.getenv("BMC_TITLE_CREDIT_REGEX", r"^\s*(\d+)\s*credits?\b")
 
-# ---------- helpers ----------
+# ===== helpers =====
 def _pick(obj: dict, keys):
     for k in keys:
         v = obj.get(k)
@@ -80,7 +64,6 @@ def _pick(obj: dict, keys):
     return None
 
 def _from_candidates(payload: Dict[str, Any]):
-    # Some BMC payloads nest under "data"
     return [payload] + ([payload["data"]] if isinstance(payload.get("data"), dict) else [])
 
 def _extract_email(payload: Dict[str, Any]) -> Optional[str]:
@@ -161,7 +144,7 @@ def _send_receipt(to_email: str, credited: int):
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(SENDER_EMAIL, [to_email], msg.as_string())
 
-# ---------- routes ----------
+# ===== routes =====
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -188,10 +171,8 @@ async def bmc_webhook(request: Request):
         total = 0
         breakdown: Dict[str, int] = {}
 
-        # Membership
         membership_name = _extract_membership_name(payload)
         if not membership_name:
-            # Sometimes membership level is in product_name
             possible_title = _extract_shop_title(payload)
             if possible_title and possible_title.lower() in [k.lower() for k in MEMBERSHIP_CREDIT_MAP.keys()]:
                 membership_name = possible_title
@@ -203,7 +184,6 @@ async def bmc_webhook(request: Request):
                 breakdown["membership"] = mcred
                 breakdown["membership_name"] = membership_name
 
-        # Shop
         title = _extract_shop_title(payload)
         if title and title.lower() not in [k.lower() for k in MEMBERSHIP_CREDIT_MAP.keys()]:
             qty = _extract_quantity(payload)
@@ -214,7 +194,6 @@ async def bmc_webhook(request: Request):
                 breakdown["shop_title"] = title
                 breakdown["shop_quantity"] = qty
 
-        # Coffees (donations)
         coffees = _extract_coffees(payload)
         if coffees == 0 and title and "coffee" in title.lower():
             coffees = _extract_quantity(payload)
@@ -247,12 +226,10 @@ async def bmc_webhook(request: Request):
             pass
         raise HTTPException(status_code=500, detail=f"Server error: {e}")
 
-# === Step 2A: image upload endpoint ===
-
+# ======= Step 2A: Uploads -> temp static (Airtable will copy) =======
 ALLOWED_EXT = {"png", "jpg", "jpeg", "webp"}
 
 def _auth_upload(token: Optional[str]):
-    """Simple bearer check for uploads."""
     if not UPLOAD_API_TOKEN or not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
     if token.startswith("Bearer "):
@@ -261,16 +238,11 @@ def _auth_upload(token: Optional[str]):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 def _pick_ext(filename: str, content_type: Optional[str]) -> str:
-    """
-    Decide file extension using MIME type first (from UploadFile.content_type),
-    falling back to filename extension. Avoids imghdr (removed in Python 3.13).
-    """
     mapping = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
     if content_type in mapping:
         return mapping[content_type]
     ext = (filename.split(".")[-1] or "").lower()
-    if ext == "jpeg":
-        ext = "jpg"
+    if ext == "jpeg": ext = "jpg"
     return ext if ext in ALLOWED_EXT else "png"
 
 @app.post("/uploads")
@@ -283,7 +255,6 @@ async def upload_image(file: UploadFile = File(...), authorization: Optional[str
     if len(data) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 20MB)")
 
-    # Create YYYY/MM subfolder and random filename
     now = time.gmtime()
     subdir = f"{now.tm_year}/{now.tm_mon:02d}"
     out_dir = pathlib.Path(UPLOAD_DIR) / subdir
@@ -292,7 +263,6 @@ async def upload_image(file: UploadFile = File(...), authorization: Optional[str
     ext = _pick_ext(file.filename or "image.png", file.content_type)
     name = f"{uuid.uuid4().hex}.{ext}"
     out_path = out_dir / name
-
     with open(out_path, "wb") as f:
         f.write(data)
 
@@ -301,4 +271,5 @@ async def upload_image(file: UploadFile = File(...), authorization: Optional[str
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
+    import uvicorn
     uvicorn.run("bmc_webhook:app", host="0.0.0.0", port=port, reload=True)
