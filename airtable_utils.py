@@ -445,8 +445,8 @@ def get_villain(record_id: str) -> dict:
     if not record_id:
         return {}
     try:
-        url = f"{API_URL}/{AIRTABLE_VILLAINS_TABLE}/{record_id}"
-        r = requests.get(url, headers=HEADERS, timeout=20)
+        url = f"{API_BASE}/{AIRTABLE_VILLAINS_TABLE}/{record_id}"
+        r = requests.get(url, headers=_headers(), timeout=20)
         r.raise_for_status()
         return r.json() or {}
     except Exception:

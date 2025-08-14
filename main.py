@@ -25,6 +25,10 @@ from airtable_utils import (
     get_user_by_email,           # needed for refresh flow
     check_and_consume_free_or_credit,
     adjust_credits,              # admin helper (dev drawer)
+    # new for saving
+    create_villain_record,
+    ensure_share_token,
+    get_villain,
 )
 
 # ---------------------------
@@ -325,7 +329,7 @@ if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
         st.session_state.saw_thanks = False   # arm toast for next render
     st.rerun()
 
-# --- Persistent Out-of-credits banner (with yellow BMC button) ---
+# --- Persistent Out-of-credits banner ---
 if free_used and credits <= 0 and not is_dev:
     st.markdown(
         """
@@ -382,6 +386,10 @@ def _image_bytes(path):
             return f.read()
     except Exception:
         return None
+
+def _is_http_url(s: str) -> bool:
+    s = str(s or "")
+    return s.startswith("http://") or s.startswith("https://")
 
 # ---------------------------
 # Detail view + AI image flow
@@ -465,6 +473,7 @@ if st.session_state.villain:
     if st.session_state.card_file is None:
         st.session_state.card_file = create_villain_card(villain, image_file=image_for_card, theme_name=style)
 
+    # --- Download + transparent note ---
     if st.session_state.card_file and os.path.exists(st.session_state.card_file):
         with open(st.session_state.card_file, "rb") as f:
             card_data = f.read()
@@ -472,10 +481,37 @@ if st.session_state.villain:
             label="⬇️ Download Villain Card",
             data=card_data,
             file_name=os.path.basename(st.session_state.card_file),
-            mime="image/png"
+            mime="image/png",
+            key="btn_download_card",
         )
+        st.caption("ℹ️ Downloading the card. We also keep an internal copy for reliability and abuse prevention. No personal info beyond your account email is stored.")
     else:
         st.error("Villain card could not be generated. Please try again.")
+
+    # --- Save to My Villains (Airtable) ---
+    if st.button("💾 Save to My Villains", key="btn_save_villain"):
+        try:
+            # If you already have public URLs, pass them; otherwise save metadata only.
+            img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
+            card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+
+            rec_id = create_villain_record(
+                owner_email=norm_email,
+                villain_json=villain,
+                style=style,
+                image_url=img_url,
+                card_url=card_url,
+                version=1,
+            )
+            token = ensure_share_token(rec_id)
+            rec = get_villain(rec_id)
+            fields = rec.get("fields", {}) if rec else {}
+            public_url = fields.get("public_url", "")
+            # Fallback if formula hasn't populated yet
+            share_link = public_url or f"(share token: {token})"
+            st.success(f"Saved! Share link: {share_link}")
+        except Exception as e:
+            st.error(f"Save failed: {e}")
 
 # Dev debug panel
 render_debug_panel()
