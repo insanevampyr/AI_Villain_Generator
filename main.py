@@ -66,6 +66,14 @@ for k, v in dict(
 if not st.session_state.device_id:
     st.session_state.device_id = f"dev-{random.randint(10**8, 10**9-1)}"
 
+if st.session_state.get("is_dev"):
+    st.caption(
+        f"debug — credits:{st.session_state.get('ai_credits')}  "
+        f"delta:{st.session_state.get('latest_credit_delta')}  "
+        f"saw_thanks:{st.session_state.get('saw_thanks')}"
+    )
+
+
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -295,6 +303,8 @@ title_text = "🌙 AI Villain Generator"
 if is_dev:
     title_text += " ⚡"
 st.title(title_text)
+# 🔔 show one-time toast as early as possible
+thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
@@ -302,10 +312,11 @@ st.markdown(sub_line, unsafe_allow_html=True)
 
 # --- Refresh credits button (manual) ---
 if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
-    delta = refresh_credits()
+    delta = refresh_credits()           # sets latest_credit_delta + ai_credits
     if delta > 0:
-        st.session_state.saw_thanks = False   # arm toast
+        st.session_state.saw_thanks = False   # arm toast for next render
     st.rerun()
+
 
 # show the one-time toast (runs every render; gated by flags)
 thanks_for_support_if_any()
