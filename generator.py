@@ -79,25 +79,21 @@ def generate_villain(tone="dark", force_new: bool = False):
     Also includes JSON salvage + one strict fix attempt to reduce parse failures.
     """
     variety_prompt = random.choice([
-        "Avoid using shadow or darkness-based powers.",
-        "Avoid doctors and scientists as characters.",
-        "Do not repeat any powers or names from previous villains.",
-        "Use a bizarre or uncommon origin story.",
-        "Give them a name and alias not based on 'dark' or 'shadow'.",
-        "Use a power that sounds impractical but terrifying.",
-        "Make the character totally unpredictable or strange."
+        "Sometimes use a bizarre or uncommon origin story.",
+        "Give them a name and alias not based on their power.",
+        "Use a power that sounds practical or terrifying.",
+        "Sometimes make the character totally unpredictable or strange."
     ])
 
     prompt = f'''
 Create a unique and original supervillain character profile in a {tone} tone. 
-You must not use shadow/darkness powers or doctor/scientist names.
 {variety_prompt}
 
 Return JSON with the following keys:
 
-name: A villainous full name (not a doctor)
+name: A villainous full name not related to power
 alias: A creative codename that is not 'dark' or 'shadow' themed
-power: Unique primary superpower
+power: Primary superpower
 weakness: Core vulnerability
 nemesis: Their heroic enemy
 lair: Where they operate from
