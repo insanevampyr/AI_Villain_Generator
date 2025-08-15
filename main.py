@@ -242,10 +242,10 @@ else:
     with col_close:
         st.link_button("Close", f"?{urlencode(close_params)}", use_container_width=True)
 
-    # --- Admin Top‑Up (only if dev mode is active) ---
+    # --- Admin Top-Up (only if dev mode is active) ---
     if st.session_state.dev_key_entered:
         st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
-        st.caption("Admin credit top‑up")
+        st.caption("Admin credit top-up")
 
         tgt_email = st.text_input("User email", key="admin_topup_email", label_visibility="collapsed", placeholder="user@example.com")
         col_delta, col_btn = st.columns([1,1])
@@ -304,7 +304,7 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔔 one‑time toast as early as possible
+# 🔔 one-time toast as early as possible
 thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
@@ -431,15 +431,16 @@ if st.session_state.villain:
     else:
         display_source = _image_bytes("assets/AI_Villain_logo.png")
 
-    col2, col1 = st.columns([2, 1])
+    # Make image column wider and let it scale to column width (so HD detail is visible)
+    col_img, col_meta = st.columns([3, 2])
 
-    with col1:
+    with col_img:
         if display_source:
-            st.image(display_source, caption="Current Portrait", width=200)
+            st.image(display_source, caption="Current Portrait", use_column_width=True)
         else:
             st.write("_No image available._")
 
-    with col2:
+    with col_meta:
         st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
         st.markdown(f"**Power:** {villain['power']}")
         st.markdown(f"**Weakness:** {villain['weakness']}")
