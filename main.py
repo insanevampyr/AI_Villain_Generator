@@ -473,7 +473,10 @@ if st.session_state.villain:
 
         st.markdown(f"**Threat Level:** {villain['threat_level']}")
         st.markdown(f"**Faction:** {villain['faction']}")
-        st.markdown(f"**Origin:** {villain['origin']}")
+        # --- Full-width Origin (wraps under the image) ---
+        st.markdown("**Origin:**")
+        st.markdown(villain["origin"])
+
 
     image_for_card = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
     if st.session_state.card_file is None:
