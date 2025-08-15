@@ -432,11 +432,27 @@ if st.session_state.villain:
         display_source = _image_bytes("assets/AI_Villain_logo.png")
 
     # Make image column wider and let it scale to column width (so HD detail is visible)
-    col_img, col_meta = st.columns([3, 2])
+    # image on the RIGHT, text on the LEFT
+    col_meta, col_img = st.columns([2, 3])
+
 
     with col_img:
         if display_source:
-            st.image(display_source, caption="Current Portrait", use_column_width=True)
+            st.image(display_source, caption="Current Portrait", use_container_width=True)
+            # ⬇️ NEW: Download original PNG (prevents right-click JPG nonsense)
+            if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
+                try:
+                    with open(st.session_state.ai_image, "rb") as _png:
+                        st.download_button(
+                            label="⬇️ Download Original Portrait (PNG)",
+                            data=_png.read(),
+                            file_name=os.path.basename(st.session_state.ai_image),
+                            mime="image/png",
+                            key="btn_download_original_png",
+                        )
+                    st.caption("Tip: This button gives you the exact 1024×1024 PNG saved on disk.")
+                except Exception as e:
+                    st.warning(f"Couldn’t offer PNG download: {e}")
         else:
             st.write("_No image available._")
 
