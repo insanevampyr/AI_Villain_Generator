@@ -7,6 +7,7 @@ import streamlit as st
 from openai import OpenAI
 import base64
 import io
+import random
 
 from optimization_utils import hash_villain, set_debug_info, dalle_price
 
@@ -35,6 +36,18 @@ QUALITY_HINT = (
     "NOT an icon, NOT a logo, NOT a sticker, NOT flat vector art, no text or signage."
 )
 
+# Theme → visual style boosters for DALL·E
+THEME_VISUALS = {
+    "funny": "bright, comedic composition, exaggerated expressions, whimsical props, saturated but balanced colors",
+    "satirical": "playful yet sharp composition, clever visual irony, poster-like framing without text",
+    "dark": "low-key lighting, chiaroscuro, cold palette, occult hints, oppressive atmosphere",
+    "epic": "grand scale, celestial glow, ethereal atmosphere, ultra-detailed, sweeping cinematic lighting",
+    "mythic": "ancient textures, carved stone, sacred motifs, weathered materials, natural backdrops",
+    "sci-fi": "clean industrial design, emissive panels, precise geometry, cool palette, subtle chromatic aberration",
+    "cyberpunk": "neon grime, rain-slick surfaces, retro-futurist shapes, moody backlight, holographic haze",
+    "chaotic": "glitch motifs, motion blur, double exposure, probabilistic artifacts, unexpected overlays",
+}
+
 # === Logging ===
 def save_villain_to_log(villain):
     os.makedirs(LOG_FOLDER, exist_ok=True)
@@ -51,7 +64,7 @@ def save_visual_prompt_to_log(name, prompt):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(prompt.strip())
 
-# === Card Generator ===
+# === Card Generator (unchanged) ===
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     portrait_size = (230, 230)
@@ -147,6 +160,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image.save(outpath)
     return outpath
 
+def _theme_style_line(villain: dict) -> str:
+    t = (villain.get("theme") or "").lower()
+    style = THEME_VISUALS.get(t)
+    return f"Theme style: {style}." if style else ""
 
 def generate_visual_prompt(villain):
     client = OpenAI()
@@ -168,8 +185,10 @@ def generate_visual_prompt(villain):
         "could render as written text."
     )
 
+    theme_line = _theme_style_line(villain)
+
     user_prompt = (
-        f"{gender_phrase}. "
+        f"{gender_phrase}. {theme_line} "
         f"Origin: {villain.get('origin', '')} "
         f"Power: {villain.get('power', '')} "
         f"Faction: {villain.get('faction', '')} "
@@ -200,7 +219,6 @@ def generate_visual_prompt(villain):
             "photorealistic, 3/4 bust, depth of field, NOT an icon or logo or sticker."
         )
 
-
 def _decode_and_check_png(b64: str) -> bytes:
     raw = base64.b64decode(b64)
     with Image.open(io.BytesIO(raw)) as im:
@@ -208,7 +226,6 @@ def _decode_and_check_png(b64: str) -> bytes:
         if w != 1024 or h != 1024:
             raise ValueError(f"Unexpected image size {w}x{h}")
     return raw
-
 
 def _gen_once(client: OpenAI, prompt: str, allow_style: bool = True):
     """
@@ -222,18 +239,15 @@ def _gen_once(client: OpenAI, prompt: str, allow_style: bool = True):
         size="1024x1024",
         response_format="b64_json",
     )
-    # Some SDKs/models accept style="vivid"; if that's incompatible, we'll fall back.
     if allow_style:
         kwargs["style"] = "vivid"
     try:
         return client.images.generate(**kwargs)
     except Exception:
         if allow_style:
-            # Retry without the style arg if not supported
             kwargs.pop("style", None)
             return client.images.generate(**kwargs)
         raise
-
 
 def generate_ai_portrait(villain):
     client = OpenAI()
@@ -261,7 +275,6 @@ def generate_ai_portrait(villain):
                     return img_path
         except Exception:
             pass
-        # Old/bad file — remove and regenerate
         try:
             os.remove(img_path)
         except Exception:
@@ -273,22 +286,18 @@ def generate_ai_portrait(villain):
         b64 = response.data[0].b64_json
         png_bytes = _decode_and_check_png(b64)
     except Exception:
-        # One silent retry with an even stronger suffix
         retry_prompt = final_prompt + (
             "\n\nUltra-detailed cinematic portrait, film still, realistic lensing and lighting, "
             "NOT an icon/logo/sticker, no text."
         )
         response = _gen_once(client, retry_prompt, allow_style=False)
         b64 = response.data[0].b64_json
-        # If this raises, we surface the error to UI
         png_bytes = _decode_and_check_png(b64)
 
-    # Save original 1024×1024 PNG bytes
     with open(img_path, "wb") as f:
         f.write(png_bytes)
 
     return img_path
-
 
 __all__ = [
     "create_villain_card",
