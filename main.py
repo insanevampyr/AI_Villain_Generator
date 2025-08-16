@@ -209,31 +209,100 @@ if not st.session_state.otp_verified:
     st.stop()
 
 # ---------------------------
-# Invisible corner click → reveal dev drawer
+# Invisible corner click → reveal dev drawer (bigger, safer, mobile-aware)
 # ---------------------------
 dev_open = "dev" in st.query_params
+dev_hint = "dev_hint" in st.query_params  # first-tap confirmation state
+
+# Styles: larger rectangle, offset from Streamlit chrome, mobile sizing
 st.markdown(
     """
     <style>
-    a.dev-hitbox{position:fixed;bottom:10px;right:10px;width:22px;height:22px;
-                 display:block;opacity:0.04;z-index:9999;text-decoration:none;}
-    a.dev-hitbox:hover{opacity:0.25;}
-    div.dev-drawer{position:fixed;bottom:14px;right:14px;z-index:10000;
-                   background:#111;border:1px solid #333;border-radius:10px;
-                   padding:10px 12px;box-shadow:0 4px 14px rgba(0,0,0,0.4);min-width:260px;}
-    .dev-label{font-size:12px;color:#aaa;margin-bottom:6px;}
+      a.dev-hitbox{
+        position:fixed;
+        bottom:88px;           /* lifted off the very corner to avoid overlap */
+        right:12px;
+        width:120px;           /* bigger tap target */
+        height:48px;
+        display:block;
+        opacity:0.02;          /* nearly invisible */
+        z-index:9999;
+        text-decoration:none;
+        border-radius:12px;    /* rounded rectangle */
+      }
+      a.dev-hitbox:hover{opacity:0.12;}
+
+      /* Tiny “confirm” chip that appears after first tap */
+      .dev-confirm{
+        position:fixed;
+        bottom:96px;
+        right:16px;
+        z-index:10000;
+        background:#111;
+        border:1px solid #333;
+        border-radius:999px;
+        padding:8px 10px;
+        box-shadow:0 4px 14px rgba(0,0,0,0.4);
+        font-size:12px;
+        color:#ddd;
+        display:flex; gap:8px; align-items:center;
+      }
+      .dev-confirm a{
+        color:#eee; text-decoration:none; background:#222;
+        padding:4px 8px; border-radius:8px; border:1px solid #444;
+      }
+      .dev-confirm a:hover{ background:#2a2a2a; }
+
+      /* Mobile: thumb-friendly */
+      @media (max-width: 640px){
+        a.dev-hitbox{
+          width:140px;
+          height:56px;
+          bottom:96px;
+          right:12px;
+        }
+        .dev-confirm{ bottom:104px; right:14px; }
+      }
+
+      /* Dev drawer styling unchanged */
+      div.dev-drawer{
+        position:fixed; bottom:14px; right:14px; z-index:10000;
+        background:#111; border:1px solid #333; border-radius:10px;
+        padding:10px 12px; box-shadow:0 4px 14px rgba(0,0,0,0.4); min-width:260px;
+      }
+      .dev-label{ font-size:12px; color:#aaa; margin-bottom:6px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
-if not dev_open:
-    st.markdown(f'<a class="dev-hitbox" href="?{urlencode({**st.query_params, **{"dev": "1"}})}"></a>', unsafe_allow_html=True)
-else:
-    close_params = dict(st.query_params); close_params.pop("dev", None)
+
+if not dev_open and not dev_hint:
+    # First step: invisible rectangle → sets a short-lived hint state
+    hint_params = dict(st.query_params); hint_params["dev_hint"] = "1"
+    st.markdown(f'<a class="dev-hitbox" href="?{urlencode(hint_params)}"></a>', unsafe_allow_html=True)
+
+elif dev_hint and not dev_open:
+    # Second step: tiny confirm chip with Open / Cancel
+    open_params = dict(st.query_params); open_params["dev"] = "1"; open_params.pop("dev_hint", None)
+    cancel_params = dict(st.query_params); cancel_params.pop("dev_hint", None); cancel_params.pop("dev", None)
+    st.markdown(
+        f"""
+        <div class="dev-confirm">
+          <span>Open dev tools?</span>
+          <a href="?{urlencode(open_params)}">Open</a>
+          <a href="?{urlencode(cancel_params)}">Cancel</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+if dev_open:
+    close_params = dict(st.query_params); close_params.pop("dev", None); close_params.pop("dev_hint", None)
     st.markdown(f'<div class="dev-drawer"><div class="dev-label">Developer</div>', unsafe_allow_html=True)
 
     # Dev key (tiny)
-    dev_val = st.text_input("Dev key", value="", type="password", key="dev_key_input", label_visibility="collapsed", placeholder="dev key")
+    dev_val = st.text_input("Dev key", value="", type="password", key="dev_key_input",
+                            label_visibility="collapsed", placeholder="dev key")
     col_apply, col_close = st.columns([1,1])
     with col_apply:
         if st.button("Apply", key="apply_dev_key", use_container_width=True):
@@ -247,10 +316,12 @@ else:
         st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
         st.caption("Admin credit top-up")
 
-        tgt_email = st.text_input("User email", key="admin_topup_email", label_visibility="collapsed", placeholder="user@example.com")
+        tgt_email = st.text_input("User email", key="admin_topup_email", label_visibility="collapsed",
+                                  placeholder="user@example.com")
         col_delta, col_btn = st.columns([1,1])
         with col_delta:
-            delta = st.number_input("Δ credits", min_value=-1000, max_value=1000, value=1, step=1, label_visibility="collapsed")
+            delta = st.number_input("Δ credits", min_value=-1000, max_value=1000, value=1, step=1,
+                                    label_visibility="collapsed")
         with col_btn:
             if st.button("Apply change", use_container_width=True, key="btn_admin_apply_delta"):
                 if not tgt_email or "@" not in tgt_email:
@@ -518,7 +589,6 @@ if st.session_state.villain:
             st.success(f"Saved! Share link: {share_link}")
         except Exception as e:
             st.error(f"Save failed: {e}")
-
 
 # Dev debug panel (only for dev key holders)
 if st.session_state.get("dev_key_entered"):
