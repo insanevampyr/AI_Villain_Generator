@@ -1,131 +1,42 @@
 # optimization_utils.py
-# Phase 2 — debug panel, caching, and DALLE cost helpers (with backward-compat)
+# Debug panel, caching, and DALLE cost helpers (accurate with best-of-N + retries)
 
 import hashlib
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import streamlit as st
-import tiktoken
 
-# ---- Pricing (USD / token) for gpt-3.5-turbo approx ----
+try:
+    import tiktoken
+except Exception:
+    tiktoken = None  # fallback if not installed
+
+# ---- Pricing (USD / token) for gpt-3.5-turbo (adjust if you switch models) ----
 GPT35_PRICING = {"input": 0.0005 / 1000, "output": 0.0015 / 1000}
 MODEL_NAME = "gpt-3.5-turbo"
 
 # ---- DALLE price (override with env var IMAGE_PRICE_USD) ----
 def dalle_price() -> float:
-    try:
-        return float(os.getenv("IMAGE_PRICE_USD", "0.04"))
-    except Exception:
-        return 0.04
-
-# ---- Small token estimator ----
-def _estimate_cost(prompt_tokens: int, out_tokens: int) -> float:
-    return (prompt_tokens * GPT35_PRICING["input"]) + (out_tokens * GPT35_PRICING["output"])
-
-def _count_tokens(text: str, model: str = MODEL_NAME) -> int:
-    if not text:
-        return 0
-    try:
-        enc = tiktoken.encoding_for_model(model)
-    except Exception:
-        enc = tiktoken.get_encoding("cl100k_base")
-    return len(enc.encode(text))
-
-# ---- Session bootstrap ----
-def seed_debug_panel_if_needed() -> None:
-    if "debug_entries" not in st.session_state:
-        st.session_state.debug_entries = []
-    if "is_dev" not in st.session_state:
-        st.session_state.is_dev = False
-
-def _push_entry(entry: Dict[str, Any]) -> None:
-    seed_debug_panel_if_needed()
-    st.session_state.debug_entries.append(entry)
-
-# Back-compat shim: accept both `context=` and old `label=`; ignore unknown kwargs.
-def set_debug_info(
-    context: Optional[str] = None,
-    prompt: Optional[str] = None,
-    max_output_tokens: int = 0,
-    cost_only: bool = False,
-    cost_override: Optional[float] = None,
-    is_cache_hit: bool = False,
-    **legacy_kwargs
-) -> None:
     """
-    Store a single debug entry. If cost_only=True, no prompt tokenization is done and
-    cost_override (e.g., a flat DALLE price) is used when provided.
-    Legacy support: if caller passes label=..., we treat it as context.
+    Price per 1024×1024 DALLE image, USD. You can override via:
+      - Streamlit secrets: st.secrets["IMAGE_PRICE_USD"]
+      - Environment variable: IMAGE_PRICE_USD
+    Default fallback: 0.04
     """
-    if context is None:
-        # Allow legacy label=...
-        context = legacy_kwargs.get("label", "Usage")
+    try:
+        if "IMAGE_PRICE_USD" in st.secrets:
+            return float(st.secrets["IMAGE_PRICE_USD"])
+    except Exception:
+        pass
+    return float(os.getenv("IMAGE_PRICE_USD", "0.04"))
 
-    seed_debug_panel_if_needed()
-    if not st.session_state.get("is_dev"):
-        return  # silent in non-dev
-
-    entry: Dict[str, Any] = {
-        "context": context or "Usage",
-        "is_cache_hit": bool(is_cache_hit),
-        "cost_only": bool(cost_only),
-    }
-
-    if cost_only:
-        # Flat/override cost path (DALLE, etc.)
-        entry["estimated_cost"] = float(cost_override) if cost_override is not None else dalle_price()
-        entry["prompt"] = (prompt or "").strip()
-        entry["prompt_tokens"] = 0
-        entry["estimated_output_tokens"] = 0
-    else:
-        prompt_tokens = _count_tokens(prompt or "")
-        entry["prompt"] = prompt or ""
-        entry["prompt_tokens"] = prompt_tokens
-        entry["estimated_output_tokens"] = max(0, int(max_output_tokens))
-        entry["estimated_cost"] = round(_estimate_cost(prompt_tokens, max_output_tokens), 5)
-
-    _push_entry(entry)
-
-def render_debug_panel() -> None:
-    seed_debug_panel_if_needed()
-    if not st.session_state.get("is_dev"):
-        return
-
-    with st.expander("🧠 Token Usage Debug (Dev Only)", expanded=False):
-        if not st.session_state.debug_entries:
-            st.markdown("_No debug data yet._")
-            return
-
-        latest = st.session_state.debug_entries[-1]
-        st.markdown(f"**Context:** {latest.get('context', 'Usage')}")
-        if latest.get("is_cache_hit"):
-            st.markdown("**Cache:** HIT")
-
-        if latest.get("cost_only"):
-            # cost-only view (DALLE, etc.)
-            p = (latest.get("prompt") or "").strip()
-            if p:
-                st.markdown("**Prompt used:**")
-                st.code(p)
-            st.markdown(f"**Estimated Cost:** ${latest.get('estimated_cost', 0):.5f} USD")
-            return
-
-        # normal token display
-        st.markdown("**Prompt used:**")
-        st.code(latest.get("prompt", ""))
-        st.markdown(f"**Prompt Tokens:** {latest.get('prompt_tokens', 0)}")
-        st.markdown(f"**Estimated Output Tokens:** {latest.get('estimated_output_tokens', 0)}")
-        st.markdown(f"**Estimated Cost:** ${latest.get('estimated_cost', 0):.5f} USD")
-
-# ---- Tiny in-session cache helpers ----
+# ---- In-session cache ----
 def _ensure_cache_ns(ns: str) -> Dict[str, Any]:
-    seed_debug_panel_if_needed()
-    if "cache" not in st.session_state:
-        st.session_state.cache = {}
-    if ns not in st.session_state.cache:
-        st.session_state.cache[ns] = {}
-    return st.session_state.cache[ns]
+    store = st.session_state.setdefault("_cache", {})
+    if ns not in store:
+        store[ns] = {}
+    return store[ns]
 
 def cache_get(ns: str, key: str) -> Any:
     return _ensure_cache_ns(ns).get(key)
@@ -138,5 +49,97 @@ def hash_text(text: str) -> str:
     return hashlib.md5((text or "").encode("utf-8")).hexdigest()
 
 def hash_villain(villain: dict) -> str:
-    base = f"{villain.get('name','')}|{villain.get('alias','')}|{villain.get('power','')}|{villain.get('origin','')}"
+    base = f"{villain.get('name','')}|{villain.get('alias','')}|{villain.get('power','')}|{villain.get('origin','')}|{villain.get('theme','')}"
     return hashlib.md5(base.encode("utf-8")).hexdigest()
+
+# ---- Token counting ----
+def _approx_token_count(text: str) -> int:
+    if not text:
+        return 0
+    try:
+        if tiktoken is not None:
+            enc = tiktoken.encoding_for_model(MODEL_NAME)
+            return len(enc.encode(text))
+    except Exception:
+        pass
+    # fallback heuristic ~4 chars/token
+    return max(1, int(len(text) / 4))
+
+# ---- Dev Debug Panel state ----
+def seed_debug_panel_if_needed() -> None:
+    st.session_state.setdefault("_debug_cost_items", [])
+
+def set_debug_info(
+    context: Optional[str] = None,
+    prompt: Optional[str] = None,
+    max_output_tokens: int = 0,
+    cost_only: bool = False,
+    cost_override: Optional[float] = None,
+    is_cache_hit: bool = False,
+    n_requests: int = 1,         # multiply chat costs (best-of-N)
+    image_count: int = 0         # number of images to bill this entry for
+) -> None:
+    """
+    Store a single debug entry.
+    - If cost_only=True and cost_override is provided, we use cost_override as the base.
+    - Otherwise, we estimate chat cost from tokens and multiply by n_requests.
+    - We always add image_count * dalle_price() on top unless cost_override already represents image cost.
+    """
+    # Base costs
+    in_tokens = 0
+    out_tokens = max(0, int(max_output_tokens or 0))
+    chat_cost = 0.0
+
+    if not cost_only:
+        in_tokens = _approx_token_count(prompt or "")
+        chat_cost = (in_tokens * GPT35_PRICING["input"] + out_tokens * GPT35_PRICING["output"]) * max(1, int(n_requests))
+
+    total = float(cost_override) if (cost_only and cost_override is not None) else chat_cost
+
+    # Add images to total if requested
+    try:
+        total += (image_count or 0) * dalle_price()
+    except Exception:
+        pass
+
+    # Store/append to a panel-friendly list in session
+    items: List[Dict[str, Any]] = st.session_state.setdefault("_debug_cost_items", [])
+    items.append({
+        "context": context or "(unknown)",
+        "model": MODEL_NAME,
+        "input_tokens": in_tokens * max(1, int(n_requests)) if not cost_only else 0,
+        "output_tokens": out_tokens * max(1, int(n_requests)) if not cost_only else 0,
+        "images": int(image_count or 0),
+        "usd": round(total, 4),
+        "cache_hit": bool(is_cache_hit),
+    })
+
+def render_debug_panel() -> None:
+    """
+    Renders an expander with the list of cost items and a running total.
+    Call this once at the end of the Streamlit script.
+    """
+    items: List[Dict[str, Any]] = st.session_state.get("_debug_cost_items", [])
+    if not items:
+        return
+
+    total = sum(x.get("usd", 0.0) for x in items)
+    with st.expander(f"🧪 Developer Debug — Session Cost: ${total:.4f}", expanded=False):
+        cols = st.columns([3, 2, 2, 2, 1, 2, 1])
+        cols[0].markdown("**Context**")
+        cols[1].markdown("**Model**")
+        cols[2].markdown("**Input toks**")
+        cols[3].markdown("**Output toks**")
+        cols[4].markdown("**Imgs**")
+        cols[5].markdown("**Cost (USD)**")
+        cols[6].markdown("**Cache**")
+
+        for it in items:
+            c = st.columns([3, 2, 2, 2, 1, 2, 1])
+            c[0].write(str(it.get("context", "")))
+            c[1].write(str(it.get("model", "")))
+            c[2].write(int(it.get("input_tokens", 0)))
+            c[3].write(int(it.get("output_tokens", 0)))
+            c[4].write(int(it.get("images", 0)))
+            c[5].write(f"${float(it.get('usd', 0.0)):.4f}")
+            c[6].write("✔️" if it.get("cache_hit") else "—")

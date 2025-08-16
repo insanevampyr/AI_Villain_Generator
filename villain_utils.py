@@ -2,12 +2,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 import os
 import datetime
 import textwrap
-import requests
 import streamlit as st
 from openai import OpenAI
 import base64
 import io
-import random
 
 from optimization_utils import hash_villain, set_debug_info, dalle_price
 
@@ -64,7 +62,7 @@ def save_visual_prompt_to_log(name, prompt):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(prompt.strip())
 
-# === Card Generator (unchanged) ===
+# === Card Generator ===
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     portrait_size = (230, 230)
@@ -138,7 +136,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
                 y += font_used.getbbox("Ay")[3] + bullet_spacing
         else:
             style_font = italic_font if italic else font_used
-            for line in textwrap.wrap(content, width=wrap_width):
+            for line in textwrap.wrap(str(content), width=wrap_width):
                 draw.text((x + 10, y), line, font=style_font, fill=theme["text"])
                 y += style_font.getbbox("Ay")[3] + 3
         y += spacing
@@ -168,7 +166,7 @@ def _theme_style_line(villain: dict) -> str:
 def generate_visual_prompt(villain):
     client = OpenAI()
 
-    gender_hint = villain.get("gender", "unknown").lower()
+    gender_hint = (villain.get("gender", "unknown") or "").lower()
     if "female" in gender_hint:
         gender_phrase = "feminine, graceful energy"
     elif "male" in gender_hint:
@@ -209,7 +207,7 @@ def generate_visual_prompt(villain):
         # Append strong portrait quality guidance
         visual_prompt = f"{visual_prompt}\n\n{QUALITY_HINT}"
         st.session_state["visual_prompt"] = visual_prompt
-        save_visual_prompt_to_log(villain['name'], visual_prompt)
+        save_visual_prompt_to_log(villain.get('name', 'unknown'), visual_prompt)
         return visual_prompt
 
     except Exception as e:
@@ -254,14 +252,6 @@ def generate_ai_portrait(villain):
     visual_prompt = generate_visual_prompt(villain)
     final_prompt = visual_prompt
 
-    # Cost panel (flat DALLE price)
-    set_debug_info(
-        context="DALL·E Image",
-        prompt=final_prompt,
-        cost_only=True,
-        cost_override=dalle_price()
-    )
-
     os.makedirs(IMAGE_FOLDER, exist_ok=True)
     vid = hash_villain(villain)
     img_path = os.path.join(IMAGE_FOLDER, f"ai_portrait_{vid}.png")
@@ -272,6 +262,8 @@ def generate_ai_portrait(villain):
             with Image.open(img_path) as im:
                 w, h = im.size
                 if w == 1024 and h == 1024:
+                    # Log cost as 0 (cached) just for panel completeness
+                    set_debug_info(context="DALL·E Image (cache hit)", cost_only=True, cost_override=0.0, is_cache_hit=True, image_count=0)
                     return img_path
         except Exception:
             pass
@@ -280,24 +272,41 @@ def generate_ai_portrait(villain):
         except Exception:
             pass
 
-    # First attempt (with vivid style if supported)
+    image_calls = 0
     try:
+        # First attempt (with vivid style if supported)
         response = _gen_once(client, final_prompt, allow_style=True)
+        image_calls += 1
         b64 = response.data[0].b64_json
         png_bytes = _decode_and_check_png(b64)
     except Exception:
+        # One retry without style + even stronger prompt suffix
         retry_prompt = final_prompt + (
             "\n\nUltra-detailed cinematic portrait, film still, realistic lensing and lighting, "
             "NOT an icon/logo/sticker, no text."
         )
         response = _gen_once(client, retry_prompt, allow_style=False)
+        image_calls += 1
         b64 = response.data[0].b64_json
         png_bytes = _decode_and_check_png(b64)
 
     with open(img_path, "wb") as f:
         f.write(png_bytes)
 
+    # Record the real image call count (1 normally; 2 if we retried)
+    try:
+        set_debug_info(
+            context="DALL·E Image",
+            prompt=final_prompt,
+            cost_only=True,
+            image_count=image_calls,
+            cost_override=dalle_price() * max(1, image_calls)
+        )
+    except Exception:
+        pass
+
     return img_path
+
 
 __all__ = [
     "create_villain_card",
