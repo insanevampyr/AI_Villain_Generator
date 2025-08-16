@@ -431,15 +431,13 @@ if st.session_state.villain:
     else:
         display_source = _image_bytes("assets/AI_Villain_logo.png")
 
-    # Make image column wider and let it scale to column width (so HD detail is visible)
-    # image on the RIGHT, text on the LEFT
+    # text left, image right
     col_meta, col_img = st.columns([2, 3])
-
 
     with col_img:
         if display_source:
             st.image(display_source, caption="Current Portrait", use_container_width=True)
-            # ⬇️ NEW: Download original PNG (prevents right-click JPG nonsense)
+            # Download original PNG (prevents right-click JPG nonsense)
             if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
                 try:
                     with open(st.session_state.ai_image, "rb") as _png:
@@ -473,10 +471,10 @@ if st.session_state.villain:
 
         st.markdown(f"**Threat Level:** {villain['threat_level']}")
         st.markdown(f"**Faction:** {villain['faction']}")
-        # --- Full-width Origin (wraps under the image) ---
-        st.markdown("**Origin:**")
-        st.markdown(villain["origin"])
 
+    # --- Full-width Origin (wraps under the image) ---
+    st.markdown("**Origin:**")
+    st.markdown(villain["origin"])
 
     image_for_card = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
     if st.session_state.card_file is None:
