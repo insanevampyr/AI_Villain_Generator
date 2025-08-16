@@ -309,7 +309,7 @@ def ui_otp_panel():
                     st.session_state.awaiting_code = True
                     st.session_state.focus_code = True
                     st.session_state.otp_cooldown_sec = 30
-                    st.experimental_rerun()
+                    st.rerun() 
 
     # OTP STEP (appears after send)
     if st.session_state.awaiting_code:
@@ -327,7 +327,7 @@ def ui_otp_panel():
                 st.session_state.otp_verified = True
                 upsert_user(st.session_state.otp_email)
                 st.success("✅ Verified!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error(msg)
 
