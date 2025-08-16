@@ -519,5 +519,7 @@ if st.session_state.villain:
         except Exception as e:
             st.error(f"Save failed: {e}")
 
-# Dev debug panel
-render_debug_panel()
+
+# Dev debug panel (only for dev key holders)
+if st.session_state.get("dev_key_entered"):
+    render_debug_panel()
