@@ -2,10 +2,12 @@ import os
 import random
 import smtplib
 import ssl
+import base64
 from email.mime.text import MIMEText
 from urllib.parse import urlencode
 
 import streamlit as st
+from streamlit.components.v1 import html as st_html
 from dotenv import load_dotenv
 
 from generator import generate_villain
@@ -52,6 +54,8 @@ for k, v in dict(
     otp_verified=False,
     otp_email=None,
     otp_cooldown_sec=0,
+    awaiting_code=False,     # NEW: UX state for stacked login
+    focus_code=False,        # NEW: flag to focus OTP after sending code
     device_id=None,
     client_ip=None,
     villain=None,
@@ -105,166 +109,95 @@ def _current_user_fields():
         "free_used": bool(f.get("free_used", False)),
     }
 
-# --- credits refresh + one-time thanks toast ---
-def refresh_credits() -> int:
-    """
-    Pull latest credits from Airtable and return the positive delta.
-    Uses _last_known_credits as the baseline and updates it only here.
-    """
-    email = (st.session_state.get("otp_email")
-             or st.session_state.get("normalized_email")
-             or "").strip().lower()
-    if not email:
-        st.session_state.latest_credit_delta = 0
-        return 0
-
-    rec = get_user_by_email(email)
-    if not rec:
-        st.session_state.latest_credit_delta = 0
-        return 0
-
-    fields = (rec.get("fields") or {})
-    old = int(st.session_state.get("_last_known_credits") or 0)
-    new = int(fields.get("ai_credits", 0) or 0)
-    delta = max(0, new - old)
-
-    # update truth
-    st.session_state.ai_credits = new
-    st.session_state._last_known_credits = new
-    st.session_state.latest_credit_delta = delta
-    return delta
-
-def thanks_for_support_if_any():
-    if st.session_state.get("latest_credit_delta", 0) and not st.session_state.get("saw_thanks", True):
-        st.success(
-            f"🎉 Thanks for your support! We just added **{st.session_state.latest_credit_delta}** credits to your account."
+def _set_login_background():
+    # Try a custom login bg first, fall back to app logo if not present
+    candidates = [
+        "assets/login_bg.png",
+        "assets/AI_Villain_logo.png",
+    ]
+    img_b64 = None
+    for p in candidates:
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode()
+            break
+    if img_b64:
+        st.markdown(
+            f"""
+            <style>
+              .stApp {{
+                background: url("data:image/png;base64,{img_b64}") no-repeat center center fixed;
+                background-size: cover;
+              }}
+              /* dark overlay for contrast */
+              .stApp::before {{
+                content:"";
+                position:fixed; inset:0; 
+                background: rgba(0,0,0,0.45);
+                z-index:-1;
+              }}
+            </style>
+            """,
+            unsafe_allow_html=True,
         )
-        st.session_state.saw_thanks = True
 
-def ui_otp_panel():
-    st.subheader("🔐 Sign in to continue")
+def _clear_background_after_login():
+    # Reset background to default solid for the app views
+    st.markdown(
+        """
+        <style>
+          .stApp { background: #0e1117 !important; }
+          .stApp::before{ display:none !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    email = st.text_input(
-        "Email",
-        value=st.session_state.otp_email or "",
-        key="email_input"
-    ).strip()
-
-    colA, colB = st.columns([1, 1])
-
-    with colA:
-        cool = int(st.session_state.get("otp_cooldown_sec", 0) or 0)
-        btn_label = "Send code" if not st.session_state.otp_email else "Resend code"
-        if cool > 0:
-            btn_label = f"{btn_label} ({cool}s)"
-        disabled = cool > 0
-
-        if st.button(btn_label, disabled=disabled, use_container_width=True, key="btn_send_code"):
-            if not email or "@" not in email:
-                st.error("Enter a valid email.")
-            else:
-                try:
-                    allowed = can_send_otp(email)
-                except Exception as e:
-                    st.error(
-                        "OTP system is temporarily unavailable. "
-                        "Check Streamlit Secrets for AIRTABLE_API_KEY, AIRTABLE_BASE_ID, and OTPS table name."
-                    )
-                    if st.session_state.get("is_dev"):
-                        st.warning(f"Airtable exception: {type(e).__name__}")
-                    st.stop()
-
-                if not allowed:
-                    st.warning("Please wait a bit before requesting another code.")
-                else:
-                    code = str(random.randint(100000, 999999))
-                    create_otp_record(email, code)
-                    if _send_otp_email(email, code):
-                        st.success("Code sent. Check your inbox.")
-                        st.session_state.otp_email = email
-                        st.session_state.otp_cooldown_sec = 30
-                        st.rerun()
-
-    with colB:
-        otp = st.text_input("6-digit code", max_chars=6, key="otp_input")
-        if st.button("Verify", use_container_width=True, key="btn_verify_otp"):
-            ok, msg = verify_otp_code(email or st.session_state.otp_email, (otp or "").strip())
-            if ok:
-                st.session_state.otp_verified = True
-                st.session_state.otp_email = normalize_email(email or st.session_state.otp_email)
-                upsert_user(st.session_state.otp_email)
-                st.success("✅ Verified!")
-                st.rerun()
-            else:
-                st.error(msg)
-
-    # countdown tick
-    if st.session_state.get("otp_cooldown_sec", 0) > 0:
-        st.session_state.otp_cooldown_sec = max(0, int(st.session_state.otp_cooldown_sec) - 1)
-        st.rerun()
-
-# If not signed in yet, show OTP panel and stop
-if not st.session_state.otp_verified:
-    ui_otp_panel()
-    st.stop()
+def focus_input(label_text: str):
+    # Focus an input by its aria-label (Streamlit uses label text)
+    st_html(
+        f"""
+        <script>
+        const el = window.parent.document.querySelector('input[aria-label="{label_text}"]');
+        if (el) {{ el.focus(); el.select && el.select(); }}
+        </script>
+        """,
+        height=0,
+    )
 
 # ---------------------------
 # Invisible corner click → reveal dev drawer (bigger, safer, mobile-aware)
+# (Placed BEFORE login gate so it works on the first screen)
 # ---------------------------
 dev_open = "dev" in st.query_params
 dev_hint = "dev_hint" in st.query_params  # first-tap confirmation state
 
-# Styles: larger rectangle, offset from Streamlit chrome, mobile sizing
 st.markdown(
     """
     <style>
       a.dev-hitbox{
         position:fixed;
-        bottom:88px;           /* lifted off the very corner to avoid overlap */
-        right:12px;
-        width:120px;           /* bigger tap target */
-        height:48px;
-        display:block;
-        opacity:0.02;          /* nearly invisible */
-        z-index:9999;
-        text-decoration:none;
-        border-radius:12px;    /* rounded rectangle */
+        bottom:88px; right:12px;
+        width:120px; height:48px;
+        display:block; opacity:0.02; z-index:9999; text-decoration:none;
+        border-radius:12px;
       }
       a.dev-hitbox:hover{opacity:0.12;}
-
-      /* Tiny “confirm” chip that appears after first tap */
       .dev-confirm{
-        position:fixed;
-        bottom:96px;
-        right:16px;
-        z-index:10000;
-        background:#111;
-        border:1px solid #333;
-        border-radius:999px;
-        padding:8px 10px;
-        box-shadow:0 4px 14px rgba(0,0,0,0.4);
-        font-size:12px;
-        color:#ddd;
-        display:flex; gap:8px; align-items:center;
+        position:fixed; bottom:96px; right:16px; z-index:10000;
+        background:#111; border:1px solid #333; border-radius:999px;
+        padding:8px 10px; box-shadow:0 4px 14px rgba(0,0,0,0.4);
+        font-size:12px; color:#ddd; display:flex; gap:8px; align-items:center;
       }
       .dev-confirm a{
         color:#eee; text-decoration:none; background:#222;
         padding:4px 8px; border-radius:8px; border:1px solid #444;
       }
       .dev-confirm a:hover{ background:#2a2a2a; }
-
-      /* Mobile: thumb-friendly */
       @media (max-width: 640px){
-        a.dev-hitbox{
-          width:140px;
-          height:56px;
-          bottom:96px;
-          right:12px;
-        }
+        a.dev-hitbox{ width:140px;height:56px; bottom:96px; right:12px; }
         .dev-confirm{ bottom:104px; right:14px; }
       }
-
-      /* Dev drawer styling unchanged */
       div.dev-drawer{
         position:fixed; bottom:14px; right:14px; z-index:10000;
         background:#111; border:1px solid #333; border-radius:10px;
@@ -277,12 +210,10 @@ st.markdown(
 )
 
 if not dev_open and not dev_hint:
-    # First step: invisible rectangle → sets a short-lived hint state
     hint_params = dict(st.query_params); hint_params["dev_hint"] = "1"
     st.markdown(f'<a class="dev-hitbox" href="?{urlencode(hint_params)}"></a>', unsafe_allow_html=True)
 
 elif dev_hint and not dev_open:
-    # Second step: tiny confirm chip with Open / Cancel
     open_params = dict(st.query_params); open_params["dev"] = "1"; open_params.pop("dev_hint", None)
     cancel_params = dict(st.query_params); cancel_params.pop("dev_hint", None); cancel_params.pop("dev", None)
     st.markdown(
@@ -335,24 +266,126 @@ if dev_open:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Choose dev mode
+# ---------------------------
+# LOGIN UI (stacked, background, autofocus)
+# ---------------------------
+def ui_otp_panel():
+    _set_login_background()
+    st.title("AI Villain Generator")
+    st.subheader("🔐 Sign in to continue")
+
+    # EMAIL STEP
+    with st.form("email_form", clear_on_submit=False):
+        email = st.text_input("Email", value=st.session_state.otp_email or "", key="email_input",
+                              placeholder="you@example.com")
+        send_clicked = st.form_submit_button("Send code")
+
+    if not st.session_state.awaiting_code:
+        # Focus email on first render
+        focus_input("Email")
+
+    if send_clicked:
+        # Basic validation
+        if not email or "@" not in email:
+            st.error("Enter a valid email.")
+        else:
+            try:
+                allowed = can_send_otp(email)
+            except Exception:
+                st.error(
+                    "OTP system is temporarily unavailable. "
+                    "Check Streamlit Secrets for AIRTABLE_API_KEY, AIRTABLE_BASE_ID, and OTPS table name."
+                )
+                st.stop()
+
+            if not allowed:
+                st.warning("Please wait a bit before requesting another code.")
+            else:
+                code = str(random.randint(100000, 999999))
+                create_otp_record(email, code)
+                if _send_otp_email(email, code):
+                    st.success("Code sent. Check your inbox.")
+                    st.session_state.otp_email = normalize_email(email)
+                    st.session_state.awaiting_code = True
+                    st.session_state.focus_code = True
+                    st.session_state.otp_cooldown_sec = 30
+                    st.experimental_rerun()
+
+    # OTP STEP (appears after send)
+    if st.session_state.awaiting_code:
+        if st.session_state.focus_code:
+            focus_input("6-digit code")
+            st.session_state.focus_code = False
+
+        with st.form("otp_form"):
+            otp = st.text_input("6-digit code", max_chars=6, key="otp_input", placeholder="123456")
+            verify_clicked = st.form_submit_button("Verify")
+
+        if verify_clicked:
+            ok, msg = verify_otp_code(st.session_state.otp_email, (otp or "").strip())
+            if ok:
+                st.session_state.otp_verified = True
+                upsert_user(st.session_state.otp_email)
+                st.success("✅ Verified!")
+                st.experimental_rerun()
+            else:
+                st.error(msg)
+
+    # Show dev dashboard on login screen too (key-gated)
+    if st.session_state.get("dev_key_entered"):
+        render_debug_panel()
+
+# If not signed in yet, show OTP panel and stop
+if not st.session_state.otp_verified:
+    ui_otp_panel()
+    st.stop()
+
+# From here on, the user is verified
+_clear_background_after_login()
+
+# Choose dev mode flag
 is_dev = bool(st.session_state.dev_key_entered)
 st.session_state["is_dev"] = is_dev
 
 # ---------------------------
 # Header (signed-in) with credits badge
 # ---------------------------
+def refresh_credits() -> int:
+    email = (st.session_state.get("otp_email")
+             or st.session_state.get("normalized_email")
+             or "").strip().lower()
+    if not email:
+        st.session_state.latest_credit_delta = 0
+        return 0
+    rec = get_user_by_email(email)
+    if not rec:
+        st.session_state.latest_credit_delta = 0
+        return 0
+    fields = (rec.get("fields") or {})
+    old = int(st.session_state.get("_last_known_credits") or 0)
+    new = int(fields.get("ai_credits", 0) or 0)
+    delta = max(0, new - old)
+    st.session_state.ai_credits = new
+    st.session_state._last_known_credits = new
+    st.session_state.latest_credit_delta = delta
+    return delta
+
+def thanks_for_support_if_any():
+    if st.session_state.get("latest_credit_delta", 0) and not st.session_state.get("saw_thanks", True):
+        st.success(
+            f"🎉 Thanks for your support! We just added **{st.session_state.latest_credit_delta}** credits to your account."
+        )
+        st.session_state.saw_thanks = True
+
 norm_email = normalize_email(st.session_state.otp_email or "")
 user_summary = _current_user_fields()
 credits = user_summary["ai_credits"]
 free_used = user_summary["free_used"]
 
-# Initialize the baseline ONCE after login, then never touch it except in refresh_credits()
 if not st.session_state._baseline_inited:
     st.session_state._last_known_credits = int(credits or 0)
     st.session_state._baseline_inited = True
 
-# keep ai_credits in sync for the UI only
 st.session_state.ai_credits = int(credits or 0)
 
 if credits <= 0:
@@ -375,21 +408,18 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# 🔔 one-time toast as early as possible
 thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
 st.markdown(sub_line, unsafe_allow_html=True)
 
-# --- Refresh credits button (manual) ---
 if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
-    delta = refresh_credits()           # sets latest_credit_delta + ai_credits + baseline
+    delta = refresh_credits()
     if delta > 0:
-        st.session_state.saw_thanks = False   # arm toast for next render
+        st.session_state.saw_thanks = False
     st.rerun()
 
-# --- Out-of-credits banner ---
 if free_used and credits <= 0 and not is_dev:
     st.markdown(
         """
@@ -569,7 +599,6 @@ if st.session_state.villain:
     # --- Save to My Villains (Airtable) ---
     if st.button("💾 Save to My Villains", key="btn_save_villain"):
         try:
-            # If you already have public URLs, pass them; otherwise save metadata only.
             img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
             card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
 
