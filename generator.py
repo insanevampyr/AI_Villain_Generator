@@ -6,7 +6,8 @@ import random
 import json
 import re
 import time
-from typing import Dict, List
+from typing import Dict, List, Deque, Optional
+from collections import deque
 
 from optimization_utils import set_debug_info, cache_get, cache_set, hash_text
 
@@ -14,6 +15,89 @@ from optimization_utils import set_debug_info, cache_get, cache_set, hash_text
 if not st.secrets:
     load_dotenv()
 openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
+
+# -------- Names: import pools from config --------
+try:
+    from config import MALE_NAMES, FEMALE_NAMES, NEUTRAL_NAMES, LAST_NAMES
+except Exception:
+    # Minimal fallbacks to avoid crashes if config.py is missing names.
+    MALE_NAMES = ["Alex", "Benjamin", "Carter", "Diego", "Ethan", "Gavin", "Hunter", "Isaac", "Jacob", "Liam"]
+    FEMALE_NAMES = ["Ava", "Bella", "Camila", "Chloe", "Elena", "Emma", "Hannah", "Isabella", "Layla", "Lily"]
+    NEUTRAL_NAMES = ["Avery", "Blair", "Casey", "Charlie", "Dakota", "Eden", "Emery", "Jordan", "Quinn", "Riley"]
+    LAST_NAMES = ["Reed", "Hart", "Lane", "Sloan", "Hayes", "Quinn", "Rivera", "Nguyen", "Khan", "Silva"]
+
+# Optional: remove neutral names from gendered pools to reduce overlap bias
+def _dedup_across_pools():
+    neutral_set = set(n.lower() for n in NEUTRAL_NAMES)
+    def _filter(pool):
+        out = []
+        for n in pool:
+            if n.lower() not in neutral_set:
+                out.append(n)
+        return out
+    return _filter(MALE_NAMES), _filter(FEMALE_NAMES)
+
+MALE_NAMES, FEMALE_NAMES = _dedup_across_pools()
+
+# =============
+# Shuffle-bag
+# =============
+class ShuffleBag:
+    """Draw without replacement; reshuffle when empty."""
+    def __init__(self, items: List[str]):
+        self.pool: List[str] = list(dict.fromkeys([i.strip() for i in items if i and i.strip()]))
+        self.queue: Deque[str] = deque()
+        self._reshuffle()
+
+    def _reshuffle(self):
+        if not self.pool:
+            self.queue = deque()
+            return
+        tmp = self.pool[:]
+        random.shuffle(tmp)
+        self.queue = deque(tmp)
+
+    def draw(self) -> Optional[str]:
+        if not self.queue:
+            self._reshuffle()
+        if not self.queue:
+            return None
+        return self.queue.popleft()
+
+    def __len__(self):
+        return len(self.queue)
+
+def _ensure_bags():
+    if "name_bags" not in st.session_state:
+        st.session_state.name_bags = {
+            "male": ShuffleBag(MALE_NAMES),
+            "female": ShuffleBag(FEMALE_NAMES),
+            "nonbinary": ShuffleBag(NEUTRAL_NAMES),
+            "last": ShuffleBag(LAST_NAMES),
+        }
+    if "name_cooldown" not in st.session_state:
+        st.session_state.name_cooldown = {"first": deque(maxlen=10), "last": deque(maxlen=10)}
+
+def _draw_nonrepeating(kind: str, role: str) -> str:
+    _ensure_bags()
+    bags = st.session_state.name_bags
+    cdq = st.session_state.name_cooldown["first" if role == "first" else "last"]
+    bag = bags[kind]
+    tried = set()
+    for _ in range(max(3, len(bag) + 3)):
+        pick = bag.draw()
+        if pick is None:
+            break
+        key = pick.lower()
+        if key in tried:
+            continue
+        tried.add(key)
+        if key not in (n.lower() for n in cdq):
+            cdq.append(pick)
+            return pick
+    pick = bag.draw() or "Alex"
+    cdq.append(pick)
+    return pick
 
 # ---------------------------
 # Theme profiles
@@ -111,7 +195,7 @@ THEME_PROFILES: Dict[str, dict] = {
         "temperature": 0.98,
         "encourage": ["glitch", "dice", "rollback", "probability", "flicker", "unlucky", "misfire", "coin toss"],
         "ban": [],
-        "threat_dist": {"Laughable Low": 0.25, "Moderate": 0.25, "High": 0.25, "Extreme": 0.25},  # uniform
+        "threat_dist": {"Laughable Low": 0.25, "Moderate": 0.25, "High": 0.25, "Extreme": 0.25},
         "variety_prompts": [
             "Let cause and effect wobble; odd metaphors are welcome.",
             "Include at least one unpredictable ‘chaos quirk’.",
@@ -149,7 +233,6 @@ def normalize_real_name(name: str) -> str:
     parts = [p.capitalize() for p in parts[:2]]
     return " ".join(parts)
 
-# simple power→threat heuristic
 THREAT_KEYWORDS = [
     ("Laughable Low", ["prank", "pranks", "petty", "mischief", "small", "balloon", "confetti"]),
     ("Moderate", ["stealth", "toxins", "poisons", "hacking", "gadgets", "marksman", "acrobat",
@@ -178,22 +261,14 @@ def adjust_threat_for_theme(theme: str, computed: str, power_text: str) -> str:
     comp_i = LEVEL_INDEX.get(computed, 1)
     targ_i = LEVEL_INDEX.get(target, 1)
 
-    # Epic is never below High
     if theme == "epic":
         return "Extreme" if max(comp_i, targ_i) >= 3 or random.random() < 0.6 else "High"
-
-    # Funny/Satirical rarely Extreme; cap unless computed truly indicates it and chance hits
     if theme in ("funny", "satirical"):
         if LEVEL_INDEX.get(computed, 1) >= 3 and random.random() < (0.10 if theme == "funny" else 0.15):
             return "Extreme"
-        # prefer the sampled target otherwise
         return target
-
-    # Chaotic: uniform randomness
     if theme == "chaotic":
         return target
-
-    # Others: pick the stronger of computed vs sampled (lean toward danger if power is big)
     final_i = max(comp_i, targ_i)
     return LEVEL_ORDER[final_i]
 
@@ -203,7 +278,6 @@ def tech_term_count(text: str) -> int:
     return sum(1 for w in terms if w in t)
 
 def score_candidate(theme: str, data: dict) -> float:
-    """Higher = better fit to theme."""
     p = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
     text_blobs = " ".join([
         str(data.get("power", "")),
@@ -217,20 +291,17 @@ def score_candidate(theme: str, data: dict) -> float:
     score += sum(1.0 for w in p["encourage"] if w in text_blobs)
     score -= sum(1.5 for w in p["ban"] if w in text_blobs)
 
-    # Funny/Satirical: penalize heavy tech unless lucky allowance triggers
     if theme in ("funny", "satirical"):
         tech_hits = tech_term_count(text_blobs)
         allow_prob = p.get("tech_allow_ratio", 0.0)
-        # probabilistic mild allowance; otherwise penalize tech
         if random.random() > allow_prob:
             score -= tech_hits * 2.0
         else:
-            score -= max(0, tech_hits - 1) * 1.0  # allow at most one mild gadget term
+            score -= max(0, tech_hits - 1) * 1.0
 
     return score
 
 def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2):
-    """Minimal retry for transient failures (e.g., 429)."""
     last_err = None
     for i in range(attempts):
         try:
@@ -242,11 +313,10 @@ def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2):
             )
         except Exception as e:
             last_err = e
-            time.sleep(1.0 + i * 1.5)  # brief backoff
+            time.sleep(1.0 + i * 1.5)
     raise last_err
 
 def _coerce_json(raw: str):
-    """Try to coerce sloppy JSON into valid JSON."""
     try:
         return json.loads(raw)
     except Exception:
@@ -262,7 +332,6 @@ def _coerce_json(raw: str):
     return None
 
 def _fix_json_with_llm(bad_text: str):
-    """One small ‘fix’ attempt to convert to valid JSON using a short call."""
     try:
         response = _chat_with_retry(
             messages=[
@@ -278,22 +347,44 @@ def _fix_json_with_llm(bad_text: str):
     except Exception:
         return None
 
+# ===========================
+# Name selection (70/30 rule)
+# ===========================
+def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
+    """
+    Decide real name AFTER gender is known.
+      - 70%: draw first+last from shuffle-bags (gendered or neutral)
+      - 30%: use AI-produced name (normalized); if only one token, add a last name from bag
+    """
+    gender = (gender or "nonbinary").strip().lower()
+    pool_key = gender if gender in ("male", "female", "nonbinary") else "nonbinary"
+
+    use_list = (random.random() < 0.70)
+    if use_list:
+        first = _draw_nonrepeating(pool_key, role="first") or "Alex"
+        last = _draw_nonrepeating("last", role="last") or "Reed"
+        return normalize_real_name(f"{first} {last}")
+
+    raw = (ai_name_hint or "").strip()
+    if raw:
+        nm = normalize_real_name(raw)
+        if len(nm.split()) < 2:
+            last = _draw_nonrepeating("last", role="last") or "Reed"
+            return normalize_real_name(f"{nm} {last}")
+        return nm
+
+    first = _draw_nonrepeating(pool_key, role="first") or "Alex"
+    last = _draw_nonrepeating("last", role="last") or "Reed"
+    return normalize_real_name(f"{first} {last}")
+
 # ---------------------------
 # Main
 # ---------------------------
 def generate_villain(tone="dark", force_new: bool = False):
-    """
-    Theme-aware generator:
-      - best-of-2 drafts scored against theme profile
-      - modern gendered names (unrelated to power)
-      - threat level adjusted from power and theme distribution
-      - origin length 4–5 sentences (~80–120 words)
-    """
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
     best_of = 2
 
-    # Build a theme preface for the prompt
     preface_lines: List[str] = [
         f"Theme: {theme}",
         f"Tone words: {profile['tone']}.",
@@ -345,9 +436,9 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     if not force_new:
         cached = cache_get("villain_details", prompt_hash)
         if cached:
-            set_debug_info(context="Villain Details (cache HIT)", prompt="", max_output_tokens=0,
-                           cost_only=True, cost_override=0.0, is_cache_hit=True)
-            cached["theme"] = theme  # make sure theme is present for old cache
+            set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
+               cost_only=False, is_cache_hit=False, n_requests=2)
+            cached["theme"] = theme  # ensure theme exists for old cache
             return cached
 
     # Show token estimate
@@ -373,7 +464,6 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
         candidates.append(data)
 
     if not candidates:
-        # Hard fail guard
         return {
             "name": "Error", "alias": "Parse Failure", "power": "Unknown", "weakness": "Unknown",
             "nemesis": "Unknown", "lair": "Unknown",
@@ -385,12 +475,17 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     # Pick best by theme score
     best = max(candidates, key=lambda d: score_candidate(theme, d))
 
-    # --- Normalize + enforce rules ---
+    # --- Gender first, then name selection (70/30) ---
     gender = (best.get("gender") or "").lower().strip()
     if gender not in {"male", "female", "nonbinary"}:
         gender = infer_gender_from_origin(best.get("origin", "")) or random.choice(["male", "female", "nonbinary"])
 
-    real_name = normalize_real_name(best.get("name", "Unknown"))
+    # ensure bags/cooldowns exist before name selection
+    _ensure_bags()
+
+    # Choose real name with 70% list / 30% AI rule
+    real_name = select_real_name(gender=gender, ai_name_hint=best.get("name", ""))
+
     power = best.get("power", "Unknown")
 
     # compute + adjust threat
