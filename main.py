@@ -605,24 +605,43 @@ if st.session_state.villain:
     st.markdown("**Origin:**")
     st.markdown(villain["origin"])
 
-    image_for_card = st.session_state.ai_image or st.session_state.villain_image or "assets/AI_Villain_logo.png"
-    if st.session_state.card_file is None:
-        st.session_state.card_file = create_villain_card(villain, image_file=image_for_card, theme_name=style)
+# --- Card generation is deferred until the user asks for a download ---
+gen_col, dl_col = st.columns([1, 2])
 
-    # --- Download + transparent note ---
+with gen_col:
+    if st.button("⬇️ Generate Card for Download", key="btn_generate_card"):
+        with st.spinner("Preparing your downloadable card…"):
+            image_for_card = (
+                st.session_state.ai_image
+                or st.session_state.villain_image
+                or "assets/AI_Villain_logo.png"
+            )
+            try:
+                path = create_villain_card(villain, image_file=image_for_card, theme_name=style)
+                st.session_state.card_file = path
+                st.success("Card ready!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Card creation failed: {e}")
+
+with dl_col:
     if st.session_state.card_file and os.path.exists(st.session_state.card_file):
-        with open(st.session_state.card_file, "rb") as f:
-            card_data = f.read()
-        st.download_button(
-            label="⬇️ Download Villain Card",
-            data=card_data,
-            file_name=os.path.basename(st.session_state.card_file),
-            mime="image/png",
-            key="btn_download_card",
-        )
-        st.caption("ℹ️ Downloading the card. We also keep an internal copy for reliability and abuse prevention. No personal info beyond your account email is stored.")
-    else:
-        st.error("Villain card could not be generated. Please try again.")
+        try:
+            with open(st.session_state.card_file, "rb") as f:
+                st.download_button(
+                    label="⬇️ Download Villain Card",
+                    data=f.read(),
+                    file_name=os.path.basename(st.session_state.card_file),
+                    mime="image/png",
+                    key="btn_download_card",
+                )
+            st.caption(
+                "ℹ️ This is the exact PNG saved locally. We keep an internal copy for reliability; "
+                "no personal info beyond your account email is stored."
+            )
+        except Exception as e:
+            st.warning(f"Couldn’t offer PNG download: {e}")
+
 
     # --- Save to My Villains (Airtable) ---
     if st.button("💾 Save to My Villains", key="btn_save_villain"):
