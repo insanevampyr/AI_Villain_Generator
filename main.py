@@ -26,7 +26,7 @@ _merge_secrets_into_env()
 
 
 try:
-    import streamlit as st
+    import streamlit as st  # noqa: F401 (already imported above, harmless)
 except Exception:
     st = None
 
@@ -90,7 +90,7 @@ for k, v in dict(
     villain_image=None,
     ai_image=None,
     card_file=None,
-    trigger_card_dl=False,
+    trigger_card_dl=False,   # used for one-click card download
     dev_key_entered=False,
     # refresh-toast plumbing
     prev_credits=0,
@@ -566,20 +566,37 @@ if st.session_state.villain:
     with col_img:
         if display_source:
             st.image(display_source, caption="Current Portrait", use_container_width=True)
-            # Download original PNG (prevents right-click JPG nonsense)
-            if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
-                try:
+
+            # --- Download portrait: AI image (direct) OR uploaded image (convert → PNG) ---
+            try:
+                import io, re
+                from PIL import Image
+
+                portrait_bytes = None
+                if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
                     with open(st.session_state.ai_image, "rb") as _png:
-                        st.download_button(
-                            label="⬇️ Download Original Portrait (PNG)",
-                            data=_png.read(),
-                            file_name=os.path.basename(st.session_state.ai_image),
-                            mime="image/png",
-                            key="btn_download_original_png",
-                        )
-                    st.caption("Tip: This button gives you the exact 1024×1024 PNG saved on disk.")
-                except Exception as e:
-                    st.warning(f"Couldn’t offer PNG download: {e}")
+                        portrait_bytes = _png.read()
+                    tip = "Tip: This button gives you the exact 1024×1024 PNG saved on disk."
+                elif st.session_state.villain_image is not None:
+                    st.session_state.villain_image.seek(0)
+                    img = Image.open(st.session_state.villain_image).convert("RGBA")
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    portrait_bytes = buf.getvalue()
+                    tip = "Tip: This saves your uploaded image as a PNG named after the villain."
+
+                if portrait_bytes:
+                    slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
+                    st.download_button(
+                        label="⬇️ Download Villain Portrait",
+                        data=portrait_bytes,
+                        file_name=f"{slug}_portrait.png",
+                        mime="image/png",
+                        key="btn_download_portrait_png",
+                    )
+                    st.caption(tip)
+            except Exception as e:
+                st.warning(f"Couldn’t offer portrait download: {e}")
         else:
             st.write("_No image available._")
 
@@ -642,46 +659,13 @@ if st.session_state.get("trigger_card_dl"):
     finally:
         # Reset the trigger so it only fires once per click
         st.session_state.trigger_card_dl = False
+        st.session_state.card_file = None
 
-
-with gen_col:
-    if st.button("⬇️ Generate Card for Download", key="btn_generate_card"):
-        with st.spinner("Preparing your downloadable card…"):
-            image_for_card = (
-                st.session_state.ai_image
-                or st.session_state.villain_image
-                or "assets/AI_Villain_logo.png"
-            )
-            try:
-                path = create_villain_card(villain, image_file=image_for_card, theme_name=style)
-                st.session_state.card_file = path
-                st.success("Card ready!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Card creation failed: {e}")
-
-with dl_col:
-    if st.session_state.card_file and os.path.exists(st.session_state.card_file):
-        try:
-            with open(st.session_state.card_file, "rb") as f:
-                st.download_button(
-                    label="⬇️ Download Villain Card",
-                    data=f.read(),
-                    file_name=os.path.basename(st.session_state.card_file),
-                    mime="image/png",
-                    key="btn_download_card",
-                )
-            st.caption(
-                "ℹ️ This is the exact PNG saved locally. We keep an internal copy for reliability; "
-                "no personal info beyond your account email is stored."
-            )
-        except Exception as e:
-            st.warning(f"Couldn’t offer PNG download: {e}")
-
-
-    # --- Save to My Villains (Airtable) ---
+# --- Save to My Villains (Airtable) ---
+if st.session_state.villain:
     if st.button("💾 Save to My Villains", key="btn_save_villain"):
         try:
+            villain = st.session_state.villain
             img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
             card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
 
