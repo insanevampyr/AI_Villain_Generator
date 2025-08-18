@@ -215,24 +215,23 @@ def check_and_consume_free_or_credit(
 # ===== OTPs (schema: email, otp_hash, expires_at, attempts, status; rely on Airtable record.createdTime) =====
 def can_send_otp(email: str) -> bool:
     """
-    Throttle OTP sends by checking the most recent OTP record (using record.createdTime).
+    Throttle OTP sends by checking the most recent OTP record (uses Airtable record.createdTime).
     """
     e = normalize_email(email)
     formula = _eq_lower_formula("email", e)
 
-    # Get a handful and pick newest by createdTime locally (avoids needing a 'created_unix' field)
+    # Get a handful and pick newest by createdTime locally
     recs = _list(OTPS_TABLE, filterByFormula=formula, maxRecords=5)
     if not recs:
         return True
 
     newest = max(recs, key=lambda r: r.get("createdTime", ""))
-    created_iso = newest.get("createdTime", "")  # e.g., '2025-08-14T15:11:22.000Z'
+    created_iso = newest.get("createdTime", "")
     if not created_iso:
         return True
 
-    # Parse createdTime to seconds
+    # Parse createdTime to epoch seconds
     try:
-        # 'YYYY-MM-DDTHH:MM:SS.mmmZ' -> epoch
         ts = time.strptime(created_iso.split(".")[0] + "Z", "%Y-%m-%dT%H:%M:%SZ")
         created_sec = int(time.mktime(ts))
     except Exception:
@@ -244,7 +243,7 @@ def can_send_otp(email: str) -> bool:
 def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     """
     Creates an OTP row with hashed code and expiry time.
-    Fields used: email, otp_hash, expires_at (Date), attempts=0, status='Active'
+    Fields: email, otp_hash, expires_at (ISO UTC), attempts=0, status='Active'
     """
     e = normalize_email(email)
     now = int(time.time())
@@ -260,16 +259,16 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     }
     return _create(OTPS_TABLE, fields)
 
+
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     """
     Verify the newest non-expired OTP for this email.
-    We fetch recent rows by email only, sort by createdTime DESC locally,
-    then enforce:
+    We fetch by email ONLY, sort by createdTime DESC locally, then apply:
       - status != 'Used'
-      - not expired (expires_at > now)
+      - expires_at > now
       - attempts < OTP_MAX_ATTEMPTS
-      - hash(email, code) matches
-    On success: mark row Used. On failure: bump attempts.
+      - otp_hash == hash(email, code)
+    On success: mark row Used. On failure: bump attempts on that newest candidate.
     """
     e = normalize_email(email)
     formula = _eq_lower_formula("email", e)  # <-- ONLY filter by email
@@ -278,7 +277,7 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     if not recs:
         return False, "No active code. Please request a new one."
 
-    # newest first by record metadata
+    # newest first by Airtable record metadata
     recs.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
 
     now = int(time.time())

@@ -9,6 +9,20 @@ from urllib.parse import urlencode
 import streamlit as st
 from streamlit.components.v1 import html as st_html
 from dotenv import load_dotenv
+load_dotenv()
+
+import os
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+def _get_secret(key: str, default: str = "") -> str:
+    # Prefer Streamlit Cloud secrets, fallback to env
+    if st and hasattr(st, "secrets") and key in st.secrets:
+        return str(st.secrets[key])
+    return str(os.getenv(key, default))
+
 
 from generator import generate_villain
 from villain_utils import (
@@ -310,7 +324,7 @@ def ui_otp_panel():
                     st.session_state.awaiting_code = True
                     st.session_state.focus_code = True
                     st.session_state.otp_cooldown_sec = 30
-                    st.rerun() 
+                    st.rerun()
 
     # OTP STEP (appears after send)
     if st.session_state.awaiting_code:
