@@ -347,6 +347,39 @@ def _fix_json_with_llm(bad_text: str):
     except Exception:
         return None
 
+def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
+    """
+    Make the origin paragraph consistently use our chosen real_name and alias.
+    Keep wording and length very close; remove any other personal names the LLM invented.
+    """
+    if not text:
+        return text
+
+    system = (
+        "You are editing a short villain origin paragraph. "
+        "Keep the style and facts, but normalize names: "
+        "use the provided REAL NAME for real identity mentions, and the provided ALIAS for codename mentions. "
+        "Remove or replace any other names. Do not add new characters or quotations. "
+        "Return only the edited paragraph."
+    )
+    user = (
+        f"REAL NAME: {real_name}\n"
+        f"ALIAS: {alias}\n\n"
+        f"Paragraph:\n{text}"
+    )
+    try:
+        resp = _chat_with_retry(
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+            max_tokens=180, temperature=0.2, attempts=1,
+        )
+        out = (resp.choices[0].message.content or "").strip()
+        # fallback if something odd happens
+        return out if len(out) > 20 else text
+    except Exception:
+        return text
+
+
 # ===========================
 # Name selection (70/30 rule)
 # ===========================
@@ -492,6 +525,9 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     computed = classify_threat_from_power(power)
     threat_level = adjust_threat_for_theme(theme, computed, power)
 
+    origin = best.get("origin", "Unknown")
+    origin = _normalize_origin_names(origin, real_name, best.get("alias", "Unknown"))
+
     result = {
         "name": real_name,
         "alias": best.get("alias", "Unknown"),
@@ -503,7 +539,7 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
         "crimes": best.get("crimes", [] if best.get("crimes") is None else best.get("crimes")),
         "threat_level": threat_level,
         "faction": best.get("faction", "Unknown"),
-        "origin": best.get("origin", "Unknown"),
+        "origin": origin,
         "gender": gender,
         "theme": theme,
     }
