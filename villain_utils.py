@@ -256,21 +256,7 @@ def generate_ai_portrait(villain):
     vid = hash_villain(villain)
     img_path = os.path.join(IMAGE_FOLDER, f"ai_portrait_{vid}.png")
 
-    # If a previous file exists but is too small, force refresh
-    if os.path.exists(img_path):
-        try:
-            with Image.open(img_path) as im:
-                w, h = im.size
-                if w == 1024 and h == 1024:
-                    # Log cost as 0 (cached) just for panel completeness
-                    set_debug_info(context="DALL·E Image (cache hit)", cost_only=True, cost_override=0.0, is_cache_hit=True, image_count=0)
-                    return img_path
-        except Exception:
-            pass
-        try:
-            os.remove(img_path)
-        except Exception:
-            pass
+
 
     image_calls = 0
     try:
