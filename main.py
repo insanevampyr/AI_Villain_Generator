@@ -23,13 +23,6 @@ def _merge_secrets_into_env():
 _merge_secrets_into_env()
 # --------------------------------------------------------------------------
 
-
-
-try:
-    import streamlit as st  # noqa: F401 (already imported above, harmless)
-except Exception:
-    st = None
-
 def _get_secret(key: str, default: str = "") -> str:
     # Prefer Streamlit Cloud secrets, fallback to env
     if st and hasattr(st, "secrets") and key in st.secrets:
@@ -82,15 +75,15 @@ for k, v in dict(
     otp_verified=False,
     otp_email=None,
     otp_cooldown_sec=0,
-    awaiting_code=False,     # NEW: UX state for stacked login
-    focus_code=False,        # NEW: flag to focus OTP after sending code
+    awaiting_code=False,     # UX state for stacked login
+    focus_code=False,        # flag to focus OTP after sending code
     device_id=None,
     client_ip=None,
     villain=None,
     villain_image=None,
     ai_image=None,
     card_file=None,
-    trigger_card_dl=False,   # used for one-click card download
+    trigger_card_dl=False,   # one-click card download trigger
     dev_key_entered=False,
     # refresh-toast plumbing
     prev_credits=0,
@@ -195,8 +188,7 @@ def focus_input(label_text: str):
     )
 
 # ---------------------------
-# Invisible corner click → reveal dev drawer (bigger, safer, mobile-aware)
-# (Placed BEFORE login gate so it works on the first screen)
+# Invisible corner click → reveal dev drawer (before login)
 # ---------------------------
 dev_open = "dev" in st.query_params
 dev_hint = "dev_hint" in st.query_params  # first-tap confirmation state
@@ -351,18 +343,17 @@ def ui_otp_panel():
             verify_clicked = st.form_submit_button("Verify")
 
         if verify_clicked:
-            ok, msg = verify_otp_code(st.session_state.otp_email, (otp or "").strip())
+            # Use email input first so reloads don't break verification
+            email_for_verify = normalize_email(st.session_state.get("email_input") or st.session_state.otp_email)
+            ok, msg = verify_otp_code(email_for_verify, (otp or "").strip())
             if ok:
+                st.session_state.otp_email = email_for_verify
                 st.session_state.otp_verified = True
                 upsert_user(st.session_state.otp_email)
                 st.success("✅ Verified!")
                 st.rerun()
             else:
                 st.error(msg)
-
-    # Show dev dashboard on login screen too (key-gated)
-    if st.session_state.get("dev_key_entered"):
-        render_debug_panel()
 
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
