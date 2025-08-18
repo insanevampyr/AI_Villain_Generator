@@ -1,4 +1,14 @@
 # airtable_utils.py — Airtable helpers for AI Villain Generator (schema aligned to your current base)
+import os
+try:
+    import streamlit as st
+except Exception:
+    st = None
+
+def _cfg(key: str, default: str = "") -> str:
+    if st and hasattr(st, "secrets") and key in st.secrets:
+        return str(st.secrets[key])
+    return os.getenv(key, default)
 
 from __future__ import annotations
 
