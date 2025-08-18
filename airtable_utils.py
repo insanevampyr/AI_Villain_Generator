@@ -8,8 +8,10 @@ import os
 import time
 import hashlib
 from typing import Any, Dict, List, Optional, Tuple
-
 import requests
+from dotenv import load_dotenv
+load_dotenv()  # ensure .env is loaded before reading os.getenv
+
 
 # ===== Config from env / Streamlit Secrets =====
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY", "")
