@@ -9,7 +9,7 @@ import time
 from typing import Dict, List, Deque, Optional
 from collections import deque
 
-from optimization_utils import set_debug_info, cache_get, cache_set, hash_text
+from optimization_utils import set_debug_info
 
 # Load key from st.secrets first, fallback to .env locally
 if not st.secrets:
@@ -464,16 +464,6 @@ faction: Group or syndicate name
 origin: A single paragraph origin story with 4-5 sentences (about 80-120 words). No dialogue.
 '''
 
-    # --- Cache check (prompt-based) ---
-    prompt_hash = hash_text(prompt)
-    if not force_new:
-        cached = cache_get("villain_details", prompt_hash)
-        if cached:
-            set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
-               cost_only=False, is_cache_hit=False, n_requests=2)
-            cached["theme"] = theme  # ensure theme exists for old cache
-            return cached
-
     # Show token estimate
     set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
                    cost_only=False, is_cache_hit=False)
@@ -545,5 +535,4 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     }
 
     # save to cache
-    cache_set("villain_details", prompt_hash, result)
     return result
