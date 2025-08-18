@@ -90,6 +90,7 @@ for k, v in dict(
     villain_image=None,
     ai_image=None,
     card_file=None,
+    trigger_card_dl=False,
     dev_key_entered=False,
     # refresh-toast plumbing
     prev_credits=0,
@@ -545,7 +546,6 @@ if st.session_state.villain:
                 if ai_path and os.path.exists(ai_path):
                     st.session_state.ai_image = ai_path
                     st.session_state.villain_image = ai_path
-                    st.session_state.card_file = create_villain_card(villain, image_file=ai_path, theme_name=style)
                     st.success("AI-generated portrait added!")
                     st.rerun()
                 else:
@@ -605,8 +605,44 @@ if st.session_state.villain:
     st.markdown("**Origin:**")
     st.markdown(villain["origin"])
 
-# --- Card generation is deferred until the user asks for a download ---
-gen_col, dl_col = st.columns([1, 2])
+# --- One-click: Build card and download it immediately ---
+if st.session_state.villain:
+    col_card, _ = st.columns([1, 3])
+    with col_card:
+        if st.button("⬇️ Download Villain Card", key="btn_card_oneclick", use_container_width=True):
+            st.session_state.trigger_card_dl = True
+            st.rerun()
+
+# If the user clicked the button, build the card, then auto-download via a data URL
+if st.session_state.get("trigger_card_dl"):
+    import base64, re, os
+    from streamlit.components.v1 import html as st_html
+
+    villain = st.session_state.villain
+    image_for_card = (
+        st.session_state.ai_image
+        or st.session_state.villain_image
+        or "assets/AI_Villain_logo.png"
+    )
+    try:
+        path = create_villain_card(villain, image_file=image_for_card, theme_name=style)
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+        # Safe filename from villain name
+        slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
+        fname = f"{slug}_card.png"
+        # Auto-click a hidden download link (one click total for the user)
+        st_html(f'''
+            <a id="auto_dl" href="data:image/png;base64,{b64}" download="{fname}" style="display:none">download</a>
+            <script>setTimeout(()=>document.getElementById("auto_dl").click(), 50);</script>
+        ''', height=0)
+        st.success("Card generated. Your download should start automatically.")
+    except Exception as e:
+        st.error(f"Card creation failed: {e}")
+    finally:
+        # Reset the trigger so it only fires once per click
+        st.session_state.trigger_card_dl = False
+
 
 with gen_col:
     if st.button("⬇️ Generate Card for Download", key="btn_generate_card"):
