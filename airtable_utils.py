@@ -260,31 +260,37 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
 
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     """
-    Fetch newest OTPs for email with status='Active', then check expiry in Python and compare hash.
-    Marks Used on success; increments attempts on failure.
+    Verify the newest non-expired OTP for this email.
+    We fetch recent rows by email only, sort by createdTime DESC locally,
+    then enforce:
+      - status != 'Used'
+      - not expired (expires_at > now)
+      - attempts < OTP_MAX_ATTEMPTS
+      - hash(email, code) matches
+    On success: mark row Used. On failure: bump attempts.
     """
     e = normalize_email(email)
-    # Only filter by email + status (no date math / no sort-by-field)
-    formula = f"AND({_eq_lower_formula('email', e)}, {{status}}='Active')"
-
-    recs = _list(
-        OTPS_TABLE,
-        filterByFormula=formula,
-        maxRecords=5,
-    )
+    # Fetch a handful of recent rows; don't filter by status here (can hide a valid row).
+    formula = _eq_lower_formula("email", e)
+    recs = _list(OTPS_TABLE, filterByFormula=formula, maxRecords=10)
     if not recs:
         return False, "No active code. Please request a new one."
 
-    # Sort by record metadata (always present) instead of a field
+    # Newest first using record metadata that's always present
     recs.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
 
     now = int(time.time())
+    given_hash = _hash_otp(e, str(code).strip())
 
     for rec in recs:
         fields = rec.get("fields", {}) or {}
+        status = (fields.get("status") or "Active").strip()
+        if status.lower() == "used":
+            continue
+
         exp_iso = fields.get("expires_at", "")
         exp_epoch = _parse_iso_to_epoch(exp_iso)
-        if exp_epoch <= now:
+        if exp_epoch and exp_epoch <= now:
             continue  # expired
 
         attempts = int(fields.get("attempts", 0) or 0)
@@ -295,20 +301,18 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
         if not expected_hash:
             continue
 
-        given_hash = _hash_otp(e, str(code).strip())
-        if given_hash == expected_hash:
+        if expected_hash == given_hash:
             try:
                 _update(OTPS_TABLE, rec["id"], {"status": "Used"})
             except Exception:
                 pass
             return True, "Verified."
 
-        # wrong code → bump attempts
+        # wrong code → bump attempts on the newest candidate and stop
         try:
             _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
         except Exception:
             pass
-
         return False, "Incorrect code."
 
     return False, "No active code. Please request a new one."
