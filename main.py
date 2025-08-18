@@ -37,6 +37,7 @@ from airtable_utils import (
 # Bootstrap
 # ---------------------------
 load_dotenv()
+DEV_DASH_KEY = st.secrets.get("DEV_DASH_KEY", os.getenv("DEV_DASH_KEY", "godmode"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
@@ -237,7 +238,7 @@ if dev_open:
     col_apply, col_close = st.columns([1,1])
     with col_apply:
         if st.button("Apply", key="apply_dev_key", use_container_width=True):
-            st.session_state.dev_key_entered = (dev_val == "godmode")
+            st.session_state.dev_key_entered = (dev_val == DEV_DASH_KEY)
             st.rerun()
     with col_close:
         st.link_button("Close", f"?{urlencode(close_params)}", use_container_width=True)

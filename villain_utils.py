@@ -299,9 +299,9 @@ def generate_ai_portrait(villain):
             context="DALL·E Image",
             prompt=final_prompt,
             cost_only=True,
-            image_count=image_calls,
-            cost_override=dalle_price() * max(1, image_calls)
+            image_count=image_calls
         )
+
     except Exception:
         pass
 
