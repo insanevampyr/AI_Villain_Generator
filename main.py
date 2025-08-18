@@ -11,7 +11,20 @@ from streamlit.components.v1 import html as st_html
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
+# --- Make Streamlit Cloud secrets visible to modules that read os.getenv ---
+def _merge_secrets_into_env():
+    try:
+        if hasattr(st, "secrets"):
+            for k, v in st.secrets.items():
+                if k not in os.environ:
+                    os.environ[k] = str(v)
+    except Exception:
+        pass
+_merge_secrets_into_env()
+# --------------------------------------------------------------------------
+
+
+
 try:
     import streamlit as st
 except Exception:
@@ -51,7 +64,7 @@ from airtable_utils import (
 # Bootstrap
 # ---------------------------
 load_dotenv()
-DEV_DASH_KEY = st.secrets.get("DEV_DASH_KEY", os.getenv("DEV_DASH_KEY", "godmode"))
+DEV_DASH_KEY = _get_secret("DEV_DASH_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
