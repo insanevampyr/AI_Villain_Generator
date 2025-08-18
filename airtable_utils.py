@@ -270,13 +270,13 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     On success: mark row Used. On failure: bump attempts.
     """
     e = normalize_email(email)
-    # Fetch a handful of recent rows; don't filter by status here (can hide a valid row).
-    formula = _eq_lower_formula("email", e)
+    formula = _eq_lower_formula("email", e)  # <-- ONLY filter by email
+
     recs = _list(OTPS_TABLE, filterByFormula=formula, maxRecords=10)
     if not recs:
         return False, "No active code. Please request a new one."
 
-    # Newest first using record metadata that's always present
+    # newest first by record metadata
     recs.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
 
     now = int(time.time())
@@ -308,7 +308,7 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
                 pass
             return True, "Verified."
 
-        # wrong code → bump attempts on the newest candidate and stop
+        # wrong code -> bump attempts on this newest candidate and stop
         try:
             _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
         except Exception:
