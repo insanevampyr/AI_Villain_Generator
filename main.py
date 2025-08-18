@@ -488,7 +488,7 @@ if image_option == "Upload Your Own":
 # Generate villain details
 # ---------------------------
 if st.button("Generate Villain Details"):
-    st.session_state.villain = generate_villain(tone=style, force_new=True)
+    st.session_state.villain = generate_villain(tone=style, force_new=False)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None

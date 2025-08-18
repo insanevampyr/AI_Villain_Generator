@@ -416,7 +416,7 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
 def generate_villain(tone="dark", force_new: bool = False):
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
-    best_of = 2
+    best_of = 1
 
     preface_lines: List[str] = [
         f"Theme: {theme}",
