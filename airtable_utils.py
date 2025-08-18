@@ -1,3 +1,6 @@
+
+from __future__ import annotations
+
 # airtable_utils.py — Airtable helpers for AI Villain Generator (schema aligned to your current base)
 import os
 try:
@@ -10,7 +13,6 @@ def _cfg(key: str, default: str = "") -> str:
         return str(st.secrets[key])
     return os.getenv(key, default)
 
-from __future__ import annotations
 
 import secrets
 import json
