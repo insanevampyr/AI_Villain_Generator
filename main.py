@@ -334,6 +334,11 @@ def ui_otp_panel():
 
     # OTP STEP (appears after send)
     if st.session_state.awaiting_code:
+        # Make sure we show exactly which email we're going to verify
+        email_from_input = st.session_state.get("email_input") or ""
+        verifying_email = normalize_email(email_from_input or st.session_state.otp_email or "")
+        st.caption(f"Verifying for: **{verifying_email or '(no email)'}**")
+
         if st.session_state.focus_code:
             focus_input("6-digit code")
             st.session_state.focus_code = False
@@ -343,17 +348,19 @@ def ui_otp_panel():
             verify_clicked = st.form_submit_button("Verify")
 
         if verify_clicked:
-            # Use email input first so reloads don't break verification
+            # ALWAYS read the email from the visible input first (survives reloads/autofill)
             email_for_verify = normalize_email(st.session_state.get("email_input") or st.session_state.otp_email)
             ok, msg = verify_otp_code(email_for_verify, (otp or "").strip())
             if ok:
+                # Persist who we verified as so the rest of the app works normally
                 st.session_state.otp_email = email_for_verify
                 st.session_state.otp_verified = True
                 upsert_user(st.session_state.otp_email)
                 st.success("✅ Verified!")
                 st.rerun()
             else:
-                st.error(msg)
+                st.error(msg or "Verification failed.")
+
 
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
