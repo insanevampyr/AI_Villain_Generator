@@ -6,6 +6,8 @@ import ssl
 import base64
 from email.mime.text import MIMEText
 from urllib.parse import urlencode
+import time, streamlit as st
+st.experimental_set_query_params(cb=str(int(time.time()//3600)))
 
 import streamlit as st
 from streamlit.components.v1 import html as st_html
