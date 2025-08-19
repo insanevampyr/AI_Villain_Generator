@@ -286,7 +286,6 @@ if dev_open:
                         st.error(msg)
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 # ---------------------------
 # LOGIN UI (stacked, background, autofocus)
 # ---------------------------
@@ -295,10 +294,9 @@ def ui_otp_panel():
     st.title("AI Villain Generator")
     st.subheader("🔐 Sign in to continue")
 
-    # EMAIL STEP
+    # EMAIL STEP (authoritative single source of truth)
     with st.form("email_form", clear_on_submit=False):
-        email = st.text_input("Email", value=st.session_state.otp_email or "", key="email_input",
-                              placeholder="you@example.com")
+        email_input = st.text_input("Email", key="email_input", placeholder="you@example.com")
         send_clicked = st.form_submit_button("Send code")
 
     if not st.session_state.awaiting_code:
@@ -306,12 +304,14 @@ def ui_otp_panel():
         focus_input("Email")
 
     if send_clicked:
-        # Basic validation
-        if not email or "@" not in email:
+        # ALWAYS read from the visible input, then normalize
+        raw = st.session_state.get("email_input", "")
+        email_norm = normalize_email(raw)
+        if not email_norm or "@" not in email_norm:
             st.error("Enter a valid email.")
         else:
             try:
-                allowed = can_send_otp(email)
+                allowed = can_send_otp(email_norm)
             except Exception:
                 st.error(
                     "OTP system is temporarily unavailable. "
@@ -323,10 +323,10 @@ def ui_otp_panel():
                 st.warning("Please wait a bit before requesting another code.")
             else:
                 code = str(random.randint(100000, 999999))
-                create_otp_record(email, code)
-                if _send_otp_email(email, code):
+                create_otp_record(email_norm, code)
+                if _send_otp_email(email_norm, code):
                     st.success("Code sent. Check your inbox.")
-                    st.session_state.otp_email = normalize_email(email)
+                    st.session_state.otp_email = email_norm
                     st.session_state.awaiting_code = True
                     st.session_state.focus_code = True
                     st.session_state.otp_cooldown_sec = 30
@@ -334,7 +334,7 @@ def ui_otp_panel():
 
     # OTP STEP (appears after send)
     if st.session_state.awaiting_code:
-        # Make sure we show exactly which email we're going to verify
+        # Show exactly which email we will verify
         email_from_input = st.session_state.get("email_input") or ""
         verifying_email = normalize_email(email_from_input or st.session_state.otp_email or "")
         st.caption(f"Verifying for: **{verifying_email or '(no email)'}**")
@@ -348,18 +348,20 @@ def ui_otp_panel():
             verify_clicked = st.form_submit_button("Verify")
 
         if verify_clicked:
-            # ALWAYS read the email from the visible input first (survives reloads/autofill)
+            # ALWAYS read from visible input first; fallback to stored email
             email_for_verify = normalize_email(st.session_state.get("email_input") or st.session_state.otp_email)
-            ok, msg = verify_otp_code(email_for_verify, (otp or "").strip())
-            if ok:
-                # Persist who we verified as so the rest of the app works normally
-                st.session_state.otp_email = email_for_verify
-                st.session_state.otp_verified = True
-                upsert_user(st.session_state.otp_email)
-                st.success("✅ Verified!")
-                st.rerun()
+            if not email_for_verify:
+                st.error("Missing email. Please enter your email and press Send code again.")
             else:
-                st.error(msg or "Verification failed.")
+                ok, msg = verify_otp_code(email_for_verify, (otp or "").strip())
+                if ok:
+                    st.session_state.otp_email = email_for_verify
+                    st.session_state.otp_verified = True
+                    upsert_user(st.session_state.otp_email)
+                    st.success("✅ Verified!")
+                    st.rerun()
+                else:
+                    st.error(msg or "Verification failed.")
 
 
 # If not signed in yet, show OTP panel and stop
@@ -493,7 +495,6 @@ if st.button("Generate Villain Details"):
     st.session_state.card_file = None
     save_villain_to_log(st.session_state.villain)
     st.rerun()
-
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -687,3 +688,4 @@ if st.session_state.villain:
 # Dev debug panel (only for dev key holders)
 if st.session_state.get("dev_key_entered"):
     render_debug_panel()
+
