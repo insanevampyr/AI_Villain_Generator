@@ -22,8 +22,13 @@ except Exception:
 
 def _cfg(key: str, default: str = "") -> str:
     """Prefer Streamlit secrets; fallback to environment variables."""
-    if st and hasattr(st, "secrets") and key in st.secrets:
-        return str(st.secrets[key])
+    try:
+        if st is not None and hasattr(st, "secrets"):
+            # Streamlit secrets can be a Mapping; guard access cleanly
+            if key in st.secrets:
+                return str(st.secrets[key])
+    except Exception:
+        pass
     return str(os.getenv(key, default))
 
 AIRTABLE_API_KEY        = _cfg("AIRTABLE_API_KEY", "")
@@ -41,6 +46,20 @@ OTP_HASH_SALT           = _cfg("OTP_HASH_SALT", "change-this-salt")
 
 API_BASE                = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
 
+
+def airtable_config_status() -> Dict[str, bool]:
+    """
+    Non‑leaky visibility check the UI can show:
+      - api_key: present?
+      - base_id: present?
+      - otps_table: present?
+    """
+    return {
+        "api_key": bool(AIRTABLE_API_KEY),
+        "base_id": bool(AIRTABLE_BASE_ID),
+        "otps_table": bool(OTPS_TABLE),
+        "users_table": bool(USERS_TABLE),
+    }
 
 def _ensure_airtable_config():
     missing = []

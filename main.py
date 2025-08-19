@@ -14,6 +14,72 @@ try:
 except Exception:
     pass
 
+# --- imports (top of file) ---
+import streamlit as st
+import os, time, json, base64, random, re
+from typing import Optional
+
+from airtable_utils import (
+    normalize_email,
+    can_send_otp, create_otp_record, verify_otp_code,
+    airtable_config_status,    # <-- added
+)
+# ... keep your other imports unchanged ...
+
+
+# ------------- OTP PANEL -------------
+def ui_otp_panel():
+    st.subheader("🔒 Sign in to continue")
+    email_input = st.text_input("Email", key="otp_email_input", placeholder="you@example.com")
+
+    # === visibility check (no secrets leaked) ===
+    with st.expander("Runtime config (for you only)"):
+        cfg = airtable_config_status()
+        ok_api  = "✅" if cfg["api_key"] else "❌"
+        ok_base = "✅" if cfg["base_id"] else "❌"
+        ok_otps = "✅" if cfg["otps_table"] else "❌"
+        st.write(f"AIRTABLE_API_KEY {ok_api} · AIRTABLE_BASE_ID {ok_base} · AIRTABLE_OTPS_TABLE {ok_otps}")
+
+    col1, col2 = st.columns([1,1])
+    with col1:
+        if st.button("Send code", key="btn_send_code"):
+            email_norm = normalize_email(email_input)
+            missing = [k for k,v in airtable_config_status().items() if k in ("api_key","base_id","otps_table") and not v]
+            if missing:
+                st.error("OTP system unavailable. Missing: " + ", ".join(missing))
+            elif not email_norm:
+                st.error("Please enter a valid email.")
+            else:
+                try:
+                    if not can_send_otp(email_norm):
+                        st.warning("Code sent too recently. Please wait a bit and try again.")
+                    else:
+                        code = f"{random.randint(0, 999999):06d}"
+                        create_otp_record(email_norm, code)
+                        st.success("Check your email for a 6‑digit code.")
+                except Exception as e:
+                    st.error("OTP system temporarily unavailable.")
+
+    with col2:
+        code_str = st.text_input("6‑digit code", key="otp_code", max_chars=6)
+        if st.button("Verify", key="btn_verify_code"):
+            email_norm = normalize_email(email_input)
+            if not email_norm:
+                st.error("Please enter your email above first.")
+            elif not code_str or not code_str.isdigit() or len(code_str) != 6:
+                st.error("Enter the 6‑digit code you received.")
+            else:
+                try:
+                    ok, msg = verify_otp_code(email_norm, code_str)
+                    if ok:
+                        st.success("Verified! Loading the app…")
+                        st.session_state["authed_email"] = email_norm
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                except Exception:
+                    st.error("OTP verify failed. Try sending a new code.")
+
 
 import streamlit as st
 from streamlit.components.v1 import html as st_html
