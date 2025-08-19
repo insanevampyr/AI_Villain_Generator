@@ -283,29 +283,6 @@ def _qp_update(**kw):
     # Convert values to strings so Streamlit keeps them stable
     st.query_params.update({k: ("" if v is None else str(v)) for k, v in kw.items()})
 
-# Render the invisible corner that toggles the drawer
-st.markdown(
-    """
-    <style>
-      a.dev-hitbox{
-        position:fixed; right:0; top:0; width:48px; height:48px;
-        z-index:9999; background:transparent;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-colA, colB = st.columns([1, 99])
-with colA:
-    if st.button(" ", key="__dev_hitbox__", help=" "):
-        if not dev_hint:
-            _qp_update(dev_hint="1")   # set "are you sure?" hint
-            st.rerun()
-        else:
-            _qp_update(dev="1", dev_hint=None)  # open drawer, clear hint
-            st.rerun()
-
 # Optional: small text hint if the user tapped once already
 if dev_hint and not dev_open:
     st.caption("Tap again to open developer panel…")
