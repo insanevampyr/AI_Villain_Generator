@@ -1,3 +1,4 @@
+# main.py
 import os
 import random
 import smtplib
@@ -186,6 +187,7 @@ def focus_input(label_text: str):
         """,
         height=0,
     )
+
 # ---------------------------
 # Invisible corner click → reveal dev drawer (before login)
 # ---------------------------
@@ -306,12 +308,12 @@ def ui_otp_panel():
     if send_clicked:
         # ALWAYS read from the visible input, then normalize
         raw = st.session_state.get("email_input", "")
-        email = normalize_email(raw)
-        if not email or "@" not in email:
+        email_norm = normalize_email(raw)
+        if not email_norm or "@" not in email_norm:
             st.error("Enter a valid email.")
         else:
             try:
-                allowed = can_send_otp(email)
+                allowed = can_send_otp(email_norm)
             except Exception:
                 st.error(
                     "OTP system is temporarily unavailable. "
@@ -323,10 +325,10 @@ def ui_otp_panel():
                 st.warning("Please wait a bit before requesting another code.")
             else:
                 code = str(random.randint(100000, 999999))
-                create_otp_record(email, code)
-                if _send_otp_email(email, code):
+                create_otp_record(email_norm, code)
+                if _send_otp_email(email_norm, code):
                     st.success("Code sent. Check your inbox.")
-                    st.session_state.otp_email = email
+                    st.session_state.otp_email = email_norm
                     st.session_state.awaiting_code = True
                     st.session_state.focus_code = True
                     st.session_state.otp_cooldown_sec = 30
@@ -363,6 +365,7 @@ def ui_otp_panel():
                 else:
                     st.error(msg or "Verification failed.")
 
+
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
     ui_otp_panel()
@@ -374,6 +377,7 @@ _clear_background_after_login()
 # Choose dev mode flag
 is_dev = bool(st.session_state.dev_key_entered)
 st.session_state["is_dev"] = is_dev
+
 # ---------------------------
 # Header (signed-in) with credits badge
 # ---------------------------
