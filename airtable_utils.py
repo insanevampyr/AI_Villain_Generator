@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 # airtable_utils.py — Airtable helpers for AI Villain Generator (schema aligned to your current base)
@@ -11,30 +10,16 @@ except Exception:
 def _cfg(key: str, default: str = "") -> str:
     if st and hasattr(st, "secrets") and key in st.secrets:
         return str(st.secrets[key])
-    return os.getenv(key, default)
-
+    return str(os.getenv(key, default))
 
 import secrets
 import json
-import os
 import time
 import hashlib
 from typing import Any, Dict, List, Optional, Tuple
 import requests
 from dotenv import load_dotenv
 load_dotenv()  # ensure .env is loaded before reading os.getenv
-# Prefer Streamlit secrets, fallback to env
-try:
-    import streamlit as st
-except Exception:
-    st = None
-
-def _cfg(key: str, default: str = "") -> str:
-    if st and hasattr(st, "secrets") and key in st.secrets:
-        return str(st.secrets[key])
-    return str(os.getenv(key, default))
-
-
 
 # ===== Config from env / Streamlit Secrets =====
 AIRTABLE_API_KEY = _cfg("AIRTABLE_API_KEY", "")
@@ -50,10 +35,7 @@ OTP_RESEND_COOLDOWN = int(_cfg("OTP_RESEND_COOLDOWN", "60"))
 OTP_MAX_ATTEMPTS    = int(_cfg("OTP_MAX_ATTEMPTS", "5"))
 OTP_HASH_SALT       = _cfg("OTP_HASH_SALT", "change-this-salt")
 
-
-
 API_BASE = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
-
 
 # ===== Small helpers =====
 def _headers() -> Dict[str, str]:
@@ -67,11 +49,11 @@ def _escape_squote(s: str) -> str:
 
 def _eq_lower_formula(field: str, value: str) -> str:
     field = (field or "").strip()
+    # Produces: LOWER({email})=LOWER('value')
     return f"LOWER({{{field}}})=LOWER('{_escape_squote(value or '')}')"
 
 def _iso_utc(ts: int) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
-
 
 def normalize_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
@@ -100,7 +82,6 @@ def _parse_iso_to_epoch(s: str) -> int:
             return int(time.mktime(time.strptime(core, "%Y-%m-%dT%H:%M:%S")))
         except Exception:
             return 0
-
 
 # ===== HTTP wrappers =====
 def _list(table: str, **params) -> List[Dict[str, Any]]:
@@ -146,7 +127,6 @@ def _update(table: str, record_id: str, fields: Dict[str, Any]) -> Dict[str, Any
     r = requests.patch(url, headers=_headers(), json={"fields": fields}, timeout=30)
     r.raise_for_status()
     return r.json()
-
 
 # ===== Users & credits =====
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
@@ -235,24 +215,26 @@ def check_and_consume_free_or_credit(
 
     return False, "You have no credits remaining. Buy credits to continue."
 
-
 # ===== OTPs (schema: email, otp_hash, expires_at, attempts, status; rely on Airtable record.createdTime) =====
 def can_send_otp(email: str) -> bool:
     """
-    Throttle OTP sends by checking the most recent OTP record.
-    NOTE: We do NOT use Airtable filterByFormula (it can silently return 0).
+    Throttle OTP sends by checking the most recent OTP record for this email.
+    Uses Airtable filterByFormula + sort to reliably fetch the newest record.
     """
     e = normalize_email(email)
+    if not e:
+        return True
 
-    # Pull a small batch without any filter, then filter locally
-    recs = _list(OTPS_TABLE, maxRecords=20)
-    # Keep only this email
-    recs = [r for r in recs if normalize_email((r.get("fields", {}) or {}).get("email")) == e]
+    recs = _list(
+        OTPS_TABLE,
+        filterByFormula=_eq_lower_formula("email", e),
+        maxRecords=1,
+        sort=[{"field": "createdTime", "direction": "desc"}],
+    )
     if not recs:
         return True
 
-    # newest by Airtable-createdTime
-    newest = max(recs, key=lambda r: r.get("createdTime", ""))
+    newest = recs[0]
     created_iso = newest.get("createdTime", "")
     if not created_iso:
         return True
@@ -264,7 +246,6 @@ def can_send_otp(email: str) -> bool:
         return True
 
     return (int(time.time()) - created_sec) >= OTP_RESEND_COOLDOWN
-
 
 def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     """
@@ -285,27 +266,25 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     }
     return _create(OTPS_TABLE, fields)
 
-
-
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     """
     Verify newest non-expired OTP for this email.
-    We DO NOT rely on Airtable filterByFormula; we fetch a small batch and filter locally.
+    Fetch the latest OTPs for this email using filterByFormula + sort (reliable),
+    then validate expiry/attempts/hash.
     """
     e = normalize_email(email)
     now = int(time.time())
     given_hash = _hash_otp(e, str(code).strip())
 
-    # Pull small batch without filter; filter in Python for reliability
-    recs = _list(OTPS_TABLE, maxRecords=30)
-    # Keep only matching email
-    recs = [r for r in recs if normalize_email((r.get("fields", {}) or {}).get("email")) == e]
+    recs = _list(
+        OTPS_TABLE,
+        filterByFormula=_eq_lower_formula("email", e),
+        maxRecords=10,
+        sort=[{"field": "createdTime", "direction": "desc"}],
+    )
 
     if not recs:
         return False, "No active code. Please request a new one."
-
-    # newest first by Airtable createdTime
-    recs.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
 
     for rec in recs:
         fields = rec.get("fields", {}) or {}
@@ -341,7 +320,6 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
 
     return False, "No active code. Please request a new one."
 
-
 # ===== Tokens (optional) =====
 def get_token(code: str) -> Optional[Dict[str, Any]]:
     c = (code or "").strip()
@@ -354,7 +332,6 @@ def mark_token_redeemed(record_id: str, email: str) -> None:
         _update(TOKENS_TABLE, record_id, {"redeemed_by": email, "redeemed_at": _iso_utc(int(time.time())), "is_redeemed": True})
     except Exception:
         pass
-
 
 # ===== BMC webhook logging (optional) =====
 def record_bmc_event(status: str, payload: Dict[str, Any], added_credits: int, email: Optional[str] = None) -> None:
@@ -378,7 +355,6 @@ def record_bmc_event(status: str, payload: Dict[str, Any], added_credits: int, e
 # =========================
 # Villain Save/Restore/Share
 # =========================
-
 def _now_unix() -> int:
     return int(time.time())
 
