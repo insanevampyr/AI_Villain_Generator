@@ -7,7 +7,13 @@ import base64
 from email.mime.text import MIMEText
 from urllib.parse import urlencode
 import time, streamlit as st
-st.experimental_set_query_params(cb=str(int(time.time()//3600)))
+import time
+# Rotate cache-buster hourly so static chunks refresh without hard reloads
+try:
+    st.query_params["cb"] = str(int(time.time() // 3600))
+except Exception:
+    pass
+
 
 import streamlit as st
 from streamlit.components.v1 import html as st_html
@@ -193,7 +199,7 @@ def focus_input(label_text: str):
 # ---------------------------
 # Invisible corner click → reveal dev drawer (before login)
 # ---------------------------
-dev_open = "dev" in st.query_params
+dev_open = st.query_params.get("dev") not in (None, "", "0", "false", "False")
 dev_hint = "dev_hint" in st.query_params  # first-tap confirmation state
 
 st.markdown(
