@@ -24,7 +24,6 @@ def _cfg(key: str, default: str = "") -> str:
     """Prefer Streamlit secrets; fallback to environment variables."""
     try:
         if st is not None and hasattr(st, "secrets"):
-            # Streamlit secrets can be a Mapping; guard access cleanly
             if key in st.secrets:
                 return str(st.secrets[key])
     except Exception:
@@ -34,7 +33,14 @@ def _cfg(key: str, default: str = "") -> str:
 AIRTABLE_API_KEY        = _cfg("AIRTABLE_API_KEY", "")
 AIRTABLE_BASE_ID        = _cfg("AIRTABLE_BASE_ID", "")
 USERS_TABLE             = _cfg("AIRTABLE_USERS_TABLE", "Users")
-OTPS_TABLE              = _cfg("AIRTABLE_OTPS_TABLE", "OTPs")
+# Be tolerant of different key names for the OTPs table (case-sensitive Airtable table name):
+OTPS_TABLE              = (
+    _cfg("AIRTABLE_OTPS_TABLE", "")
+    or _cfg("AIRTABLE_TABLE_OTPS", "")
+    or _cfg("OTP_TABLE", "")
+    or _cfg("OTPS_TABLE", "")
+    or "OTPs"
+)
 AIRTABLE_VILLAINS_TABLE = _cfg("AIRTABLE_VILLAINS_TABLE", "Villains")
 TOKENS_TABLE            = _cfg("AIRTABLE_TOKENS_TABLE", "Tokens")
 BMC_LOG_TABLE           = _cfg("AIRTABLE_BMC_LOG_TABLE", "BMC_Events")
@@ -45,6 +51,11 @@ OTP_MAX_ATTEMPTS        = int(_cfg("OTP_MAX_ATTEMPTS", "5"))
 OTP_HASH_SALT           = _cfg("OTP_HASH_SALT", "change-this-salt")
 
 API_BASE                = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}"
+AIRTABLE_DEBUG_OTP      = _cfg("AIRTABLE_DEBUG_OTP", "false").strip().lower() in {"1","true","yes","on"}
+
+def _dbg(msg: str) -> None:
+    if AIRTABLE_DEBUG_OTP:
+        print(f"[OTP DEBUG] {msg}")
 
 
 def airtable_config_status() -> Dict[str, bool]:
@@ -53,6 +64,7 @@ def airtable_config_status() -> Dict[str, bool]:
       - api_key: present?
       - base_id: present?
       - otps_table: present?
+      - users_table: present?
     """
     return {
         "api_key": bool(AIRTABLE_API_KEY),
@@ -243,35 +255,28 @@ def check_and_consume_free_or_credit(
 
 def can_send_otp(email: str) -> bool:
     """
-    Throttle OTP sends by checking the most recent OTP record for this email.
-    Uses Airtable filterByFormula + sort to reliably fetch the newest record.
+    Throttle OTP by asking Airtable: has any record for this email been created
+    in the last OTP_RESEND_COOLDOWN seconds?
+    Uses CREATED_TIME() in a formula (no illegal sort on meta 'createdTime').
+    Fail-open on errors to avoid blocking sign-in UI.
     """
     e = normalize_email(email)
     if not e:
         return True
-
-    recs = _list(
-        OTPS_TABLE,
-        filterByFormula=_eq_lower_formula("email", e),
-        maxRecords=1,
-        sort=[{"field": "createdTime", "direction": "desc"}],
-    )
-    if not recs:
-        return True
-
-    newest = recs[0]
-    created_iso = newest.get("createdTime", "")
-    if not created_iso:
-        return True
     try:
-        created_sec = _parse_iso_to_epoch(created_iso)
-    except Exception:
-        created_sec = 0
-    if created_sec == 0:
-        return True
-
-    return (int(time.time()) - created_sec) >= OTP_RESEND_COOLDOWN
-
+        # If any record exists with created time within cooldown => too soon
+        formula = (
+            "AND("
+            f"{_eq_lower_formula('email', e)},"
+            f"DATETIME_DIFF(NOW(), CREATED_TIME(), 'seconds') < {int(OTP_RESEND_COOLDOWN)}"
+            ")"
+        )
+        _dbg(f"can_send_otp: table={OTPS_TABLE}, formula={formula}")
+        recs = _list(OTPS_TABLE, filterByFormula=formula, maxRecords=1)
+        return not bool(recs)
+    except Exception as err:
+        _dbg(f"can_send_otp error → {err}")
+        return True  # fail-open so the UI can proceed
 
 def create_otp_record(email: str, code: str) -> Dict[str, Any]:
     """
@@ -287,30 +292,45 @@ def create_otp_record(email: str, code: str) -> Dict[str, Any]:
         "attempts": 0,
         "status": "Active",
     }
+    _dbg(f"create_otp_record: table={OTPS_TABLE}, email={e}, ttl={OTP_TTL_SECONDS}s")
     return _create(OTPS_TABLE, fields)
-
 
 def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
     """
     Verify newest non-expired OTP for this email.
-    Fetch latest OTPs for this email using filterByFormula + sort,
+    Fetch recent OTPs (no API sort on createdTime), sort by createdTime in Python,
     then validate expiry/attempts/hash.
     """
     e = normalize_email(email)
     now = int(time.time())
     given_hash = _hash_otp(e, str(code).strip())
 
-    recs = _list(
-        OTPS_TABLE,
-        filterByFormula=_eq_lower_formula("email", e),
-        maxRecords=10,
-        sort=[{"field": "createdTime", "direction": "desc"}],
+    # Pre-filter in Airtable to reduce candidates: only active & not expired if fields exist
+    formula = (
+        "AND("
+        f"{_eq_lower_formula('email', e)},"
+        "OR({status}='', {status}='Active'),"
+        "OR({attempts}='', {attempts}<" + str(int(OTP_MAX_ATTEMPTS)) + "),"
+        "OR({expires_at}='', IS_AFTER({expires_at}, NOW()))"
+        ")"
     )
+    try:
+        recs = _list(OTPS_TABLE, filterByFormula=formula, maxRecords=25)
+    except Exception:
+        # Fall back to just email filter
+        recs = _list(OTPS_TABLE, filterByFormula=_eq_lower_formula("email", e), maxRecords=25)
+
+    _dbg(f"verify_otp_code: fetched {len(recs)} candidate(s) for {e}")
+
     if not recs:
         return False, "No active code. Please request a new one."
 
+    # Sort by Airtable's record createdTime (client-side)
+    recs.sort(key=lambda r: _parse_iso_to_epoch(r.get("createdTime", "")), reverse=True)
+
     for rec in recs:
         fields = rec.get("fields", {}) or {}
+
         status = (fields.get("status") or "Active").strip()
         if status.lower() == "used":
             continue
@@ -330,15 +350,15 @@ def verify_otp_code(email: str, code: str) -> Tuple[bool, str]:
         if expected_hash == given_hash:
             try:
                 _update(OTPS_TABLE, rec["id"], {"status": "Used"})
-            except Exception:
-                pass
+            except Exception as mark_err:
+                _dbg(f"verify_otp_code: mark used failed → {mark_err}")
             return True, "Verified."
 
-        # Wrong code on the newest candidate -> bump attempts and stop
+        # Wrong code on the newest viable candidate → bump attempts and stop
         try:
             _update(OTPS_TABLE, rec["id"], {"attempts": attempts + 1})
-        except Exception:
-            pass
+        except Exception as bump_err:
+            _dbg(f"verify_otp_code: attempt bump failed → {bump_err}")
         return False, "Invalid code."
 
     return False, "No active code. Please request a new one."
@@ -457,14 +477,16 @@ def list_villains(owner_email: str, limit: int = 20):
             maxRecords=int(limit or 20),
             sort=[{"field": "updated_unix", "direction": "desc"}],
         )
+        return recs or []
     except Exception:
+        # Avoid sorting by meta 'createdTime' at the API level; sort client-side.
         recs = _list(
             AIRTABLE_VILLAINS_TABLE,
             filterByFormula=f"LOWER({{owner_email}})=LOWER('{email}')",
             maxRecords=int(limit or 20),
-            sort=[{"field": "createdTime", "direction": "desc"}],
         )
-    return recs or []
+        recs.sort(key=lambda r: _parse_iso_to_epoch(r.get("createdTime", "")), reverse=True)
+        return recs
 
 def get_villain(record_id: str) -> dict:
     if not record_id:
