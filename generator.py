@@ -10,6 +10,7 @@ from typing import Dict, List, Deque, Optional
 from collections import deque
 
 from optimization_utils import set_debug_info
+from config import POWER_POOLS
 
 # Load key from st.secrets first, fallback to .env locally
 if not st.secrets:
@@ -410,6 +411,21 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     last = _draw_nonrepeating("last", role="last") or "Reed"
     return normalize_real_name(f"{first} {last}")
 
+def select_power(theme: str, ai_power_hint: Optional[str] = None) -> str:
+    """
+    70/30 rule for power selection:
+      - 70%: pick from POWER_POOLS by theme (fast, consistent, no API)
+      - 30%: keep the AI-provided power from the profile
+    Powers may repeat by design (no shuffle-bag).
+    """
+    key = (theme or "").strip().lower()
+    pool = POWER_POOLS.get(key, [])
+    use_list = (random.random() < 0.70)
+    if use_list and pool:
+        return random.choice(pool)
+    return (ai_power_hint or "Unknown").strip()
+
+
 # ---------------------------
 # Main
 # ---------------------------
@@ -509,7 +525,9 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     # Choose real name with 70% list / 30% AI rule
     real_name = select_real_name(gender=gender, ai_name_hint=best.get("name", ""))
 
-    power = best.get("power", "Unknown")
+    # 70/30: 70% from local list by theme; 30% keep the AI-provided power
+    power = select_power(theme=theme, ai_power_hint=best.get("power", "Unknown"))
+
 
     # compute + adjust threat
     computed = classify_threat_from_power(power)
