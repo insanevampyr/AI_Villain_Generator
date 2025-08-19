@@ -196,11 +196,54 @@ def focus_input(label_text: str):
         height=0,
     )
 
-# ---------------------------
-# Invisible corner click → reveal dev drawer (before login)
-# ---------------------------
-dev_open = st.query_params.get("dev") not in (None, "", "0", "false", "False")
-dev_hint = "dev_hint" in st.query_params  # first-tap confirmation state
+# -------------------------------
+# Invisible corner click -> reveal dev drawer (before login)
+# -------------------------------
+# IMPORTANT: Use ONLY the new st.query_params API in the whole app.
+# Never call experimental_get/set_query_params anywhere in this process.
+
+qp = st.query_params  # one handle; don't mix with experimental APIs
+
+def _truthy(v):
+    s = str(v).strip().lower()
+    return s not in ("", "0", "false", "none")
+
+# Read-only booleans from query params
+dev_open = _truthy(qp.get("dev", ""))
+dev_hint = "dev_hint" in qp  # first-tap confirmation flag (presence == True)
+
+# Tiny helper to update query params without switching APIs
+def _qp_update(**kw):
+    # Convert values to strings so Streamlit keeps them stable
+    st.query_params.update({k: ("" if v is None else str(v)) for k, v in kw.items()})
+
+# Render the invisible corner that toggles the drawer
+st.markdown(
+    """
+    <style>
+      a.dev-hitbox{
+        position:fixed; right:0; top:0; width:48px; height:48px;
+        z-index:9999; background:transparent;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+colA, colB = st.columns([1, 99])
+with colA:
+    if st.button(" ", key="__dev_hitbox__", help=" "):
+        if not dev_hint:
+            _qp_update(dev_hint="1")   # set "are you sure?" hint
+            st.rerun()
+        else:
+            _qp_update(dev="1", dev_hint=None)  # open drawer, clear hint
+            st.rerun()
+
+# Optional: small text hint if the user tapped once already
+if dev_hint and not dev_open:
+    st.caption("Tap again to open developer panel…")
+
 
 st.markdown(
     """
