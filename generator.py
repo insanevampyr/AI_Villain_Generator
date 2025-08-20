@@ -230,7 +230,7 @@ def normalize_real_name(name: str) -> str:
     n = re.sub(r"\s+", " ", n)
     parts = n.split(" ")
     if len(parts) < 2:
-        parts = [parts[0], random.choice(["Gray", "Reed", "Cole", "Hart", "Lane", "Sloan", "Hayes", "Quinn"])]
+        parts = [parts[0], random.choice(["Gray", "Reed", "Cole", "Hart", "Lane", "Sloan", "Hayes", "Quinn")]]
     parts = [p.capitalize() for p in parts[:2]]
     return " ".join(parts)
 
@@ -379,6 +379,53 @@ def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
     except Exception:
         return text
 
+# --- Consistency helpers ---
+STOPWORDS = {"of","the","and","to","a","an","with","without","through","via","by","from",
+             "in","on","at","for","as","is","are","be","being","into","over","under"}
+
+def _power_keywords(power: str):
+    toks = re.findall(r"[A-Za-z]+", (power or "").lower())
+    return [t for t in toks if len(t) >= 4 and t not in STOPWORDS]
+
+def _consistency_hits(data: dict, kws: List[str]) -> int:
+    blob = " ".join([
+        str(data.get("origin","")),
+        " ".join(data.get("crimes", []) if isinstance(data.get("crimes"), list) else [str(data.get("crimes",""))]),
+        str(data.get("weakness","")), str(data.get("lair","")), str(data.get("catchphrase",""))
+    ]).lower()
+    return sum(1 for k in kws if k in blob)
+
+def _align_fields_with_power(theme: str, data: dict, power: str):
+    """Ask the model to rephrase only a few fields to tightly match the fixed power."""
+    system = (
+        "You rewrite JSON fields to align strictly with a FIXED superpower. "
+        "Keep tone/theme, keep facts coherent, avoid trademarks. "
+        "Return VALID JSON with exactly these keys: weakness, nemesis, lair, catchphrase, crimes, origin."
+    )
+    user_payload = json.dumps({
+        "theme": theme,
+        "fixed_power": power,
+        "current": {
+            "weakness": data.get("weakness",""),
+            "nemesis": data.get("nemesis",""),
+            "lair": data.get("lair",""),
+            "catchphrase": data.get("catchphrase",""),
+            "crimes": data.get("crimes",[]),
+            "origin": data.get("origin",""),
+        }
+    }, ensure_ascii=False)
+    try:
+        resp = _chat_with_retry(
+            messages=[{"role":"system","content":system},{"role":"user","content":user_payload}],
+            max_tokens=300, temperature=0.4, attempts=1
+        )
+        fixed = _coerce_json(resp.choices[0].message.content.strip())
+        if isinstance(fixed, dict) and all(k in fixed for k in ("weakness","nemesis","lair","catchphrase","crimes","origin")):
+            return fixed
+    except Exception:
+        pass
+    return None
+
 # ===========================
 # Name selection (70/30 rule)
 # ===========================
@@ -435,7 +482,7 @@ def generate_villain(tone="dark", force_new: bool = False):
     forced_power = None
     try:
         pool = POWER_POOLS.get(theme, [])
-        bias = 0.95 if theme == "epic" else 0.70  # stronger stickiness for Epic
+        bias = 0.95 if theme == "epic" else 0.70  # higher stickiness for Epic
         if pool and random.random() < bias:
             forced_power = random.choice(pool)
     except Exception:
@@ -491,7 +538,7 @@ faction: Group or syndicate name
 origin: A single paragraph origin story with 4-5 sentences (about 80-120 words). No dialogue.
 '''
 
-    # Debug panel info
+    # Show token estimate
     set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
                    cost_only=False, is_cache_hit=False)
 
@@ -561,5 +608,14 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
         "gender": gender,
         "theme": theme,
     }
+
+    # --- Consistency polish for fixed power (mainly helps EPIC drift) ---
+    if forced_power:
+        kws = _power_keywords(power)
+        if _consistency_hits(result, kws) < 2:
+            patched = _align_fields_with_power(theme, result, power)
+            if patched:
+                for k in ("weakness","nemesis","lair","catchphrase","crimes","origin"):
+                    result[k] = patched.get(k, result[k])
 
     return result
