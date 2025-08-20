@@ -69,7 +69,7 @@ POWER_POOLS = {
         "SFX Foley (sound effects become real)",
         "Punchline Recall (rewind 3 seconds)",
         "Foam Fortress (rapid safe barrier)",
-        "Power Naps (instant micro‑rest)",
+        "Explosive Whoopee Cushion (comic airburst)",  # replaces Power Naps
         "Balloon Armor (impact absorption)",
         "Streamer Snare (ribbon restraints)",
         "Party Pop (confusion burst)",
@@ -94,9 +94,9 @@ POWER_POOLS = {
         "Starfall Lance (meteor javelins)",
         "Oathfire (sworn flame grows stronger)",
         "Colossus Step (quake footfalls)",
-        "Hero’s Recall (snap back to banner)",
+        "Eternal Call to Arms (summon spectral legions)",   # replaces Hero’s Recall
         "Glory Roar (fearless battle cry)",
-        "Bannerbind (stand‑your‑ground zone)",
+        "Worldpillar (colossal anchoring beacon)",          # replaces Bannerbind
         "Sunward Cut (arc of daylight)",
         "Crown of Thunder (storm command)",
         "Adamantine Will (break mind control)",
@@ -104,7 +104,7 @@ POWER_POOLS = {
         "Dragonward (anti‑beast barrier)",
         "Starlit Rally (revive downed ally)",
         "Infinite Banner (spectral cohort)",
-        "Lionheart Dash (unstoppable charge)",
+        "Solar Ascension (blazing rise and charge)",        # replaces Lionheart Dash
         "Pillar Forge (raise bulwarks)",
         "Sovereign Edict (compel single action)",
         "Beacon Step (teleport to sigils)",
@@ -122,6 +122,8 @@ POWER_POOLS = {
         "Fate’s Clarion (predict next move)",
         "Kingsguard Phalanx (spectral guards)",
         "Grand Overture (orchestral buff wave)",
+        "Crown of the Infinite (dominion aura that bends fate)",  # NEW
+        "Apocalypse Herald (cataclysmic voice that shatters worlds)",  # NEW
     ],
     "sci-fi": [
         "Electrokinesis (lightning control)",
@@ -181,7 +183,7 @@ POWER_POOLS = {
         "Ember Rite (ritual ignition)",
         "Wolfshadow (pack summons)",
         "Worldroot Step (tree‑to‑tree travel)",
-        "Hero’s Mead (short burst might)",
+        "Ambrosia Surge (divine vigor boon)",   # replaces Hero’s Mead
         "Dragon Tongue (stun dragons)",
         "Mirror Lake (memory reveal)",
         "Ashen Ward (ward vs curses)",
@@ -246,7 +248,7 @@ POWER_POOLS = {
         "Sponsored Shield (brand barrier)",
         "Fine Print (twist agreement)",
         "PR Cloak (image laundering)",
-        "Public Apology (guilt debuff)",
+        "Mandatory Recall (force product/person rollback)",  # replaces Public Apology
         "Ratio Storm (overwhelm comms)",
         "TL;DR (compress info to nonsense)",
         "Focus Group (summon consensus ghosts)",
@@ -299,7 +301,7 @@ POWER_POOLS = {
         "Firmware Hex (corrupt upgrades)",
         "Neon Quiver (hardlight bolts)",
         "Biofeedback Lash (pain feedback)",
-        "Heat Sink (thermal dump)",
+        "Thermal Cascade (overclocked heat wash)",   # replaces Heat Sink
         "Ghostwalk Protocol (silent movement)",
         "Corporate Seal (invoke authority)",
         "Sandglass (bullet‑time burst)",
