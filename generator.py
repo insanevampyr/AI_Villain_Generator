@@ -375,11 +375,9 @@ def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
             max_tokens=180, temperature=0.2, attempts=1,
         )
         out = (resp.choices[0].message.content or "").strip()
-        # fallback if something odd happens
         return out if len(out) > 20 else text
     except Exception:
         return text
-
 
 # ===========================
 # Name selection (70/30 rule)
@@ -425,7 +423,6 @@ def select_power(theme: str, ai_power_hint: Optional[str] = None) -> str:
         return random.choice(pool)
     return (ai_power_hint or "Unknown").strip()
 
-
 # ---------------------------
 # Main
 # ---------------------------
@@ -433,6 +430,15 @@ def generate_villain(tone="dark", force_new: bool = False):
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
     best_of = 1
+
+    # Decide power FIRST so the model writes everything around it (prevents mismatches)
+    forced_power = None
+    try:
+        pool = POWER_POOLS.get(theme, [])
+        if pool and random.random() < 0.70:  # 70% curated, 30% model‑chosen
+            forced_power = random.choice(pool)
+    except Exception:
+        forced_power = None
 
     preface_lines: List[str] = [
         f"Theme: {theme}",
@@ -447,6 +453,10 @@ def generate_villain(tone="dark", force_new: bool = False):
         preface_lines.append("Always grand in scope; avoid petty crimes.")
     if theme == "chaotic":
         preface_lines.append("Inject one unpredictable chaos quirk in the origin.")
+    if forced_power:
+        preface_lines.append(
+            f"Fixed power: {forced_power}. Use exactly this as the 'power' and make weakness, crimes, lair, nemesis, catchphrase, and origin tightly consistent with it."
+        )
 
     variety_prompt = random.choice(profile["variety_prompts"])
 
@@ -525,9 +535,8 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     # Choose real name with 70% list / 30% AI rule
     real_name = select_real_name(gender=gender, ai_name_hint=best.get("name", ""))
 
-    # 70/30: 70% from local list by theme; 30% keep the AI-provided power
-    power = select_power(theme=theme, ai_power_hint=best.get("power", "Unknown"))
-
+    # ---- POWER (pick once; no post-hoc override) ----
+    power = forced_power or best.get("power", "Unknown")
 
     # compute + adjust threat
     computed = classify_threat_from_power(power)
@@ -552,5 +561,4 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
         "theme": theme,
     }
 
-    # save to cache
     return result
