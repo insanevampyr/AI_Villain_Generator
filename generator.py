@@ -230,7 +230,7 @@ def normalize_real_name(name: str) -> str:
     n = re.sub(r"\s+", " ", n)
     parts = n.split(" ")
     if len(parts) < 2:
-        parts = [parts[0], random.choice(["Gray", "Reed", "Cole", "Hart", "Lane", "Sloan", "Hayes", "Quinn")]]
+        parts = [parts[0], random.choice(["Gray", "Reed", "Cole", "Hart", "Lane", "Sloan", "Hayes", "Quinn"])]
     parts = [p.capitalize() for p in parts[:2]]
     return " ".join(parts)
 
@@ -507,11 +507,12 @@ def generate_villain(tone="dark", force_new: bool = False):
         )
 
     variety_prompt = random.choice(profile["variety_prompts"])
+    lines_block = "\n".join(preface_lines)  # <-- precompute to avoid backslash in f-string
 
     prompt = f'''
 Create a unique and original supervillain character profile that strictly follows the **{theme}** theme.
 
-{'\n'.join(preface_lines)}
+{lines_block}
 {variety_prompt}
 
 Rules:
