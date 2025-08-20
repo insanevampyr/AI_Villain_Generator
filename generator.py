@@ -109,7 +109,7 @@ THEME_PROFILES: Dict[str, dict] = {
         "encourage": ["prank", "slapstick", "gag", "spoof", "ridiculous", "banana", "rubber chicken", "confetti",
                       "prop comedy", "improv", "farce", "pie", "whoopee", "balloon"],
         "ban": ["quantum", "nanotech", "plasma", "neural", "cyber", "singularity", "neutrino", "lattice"],
-        "tech_allow_ratio": 0.12,  # ≤12% chance to allow mild gadgets
+        "tech_allow_ratio": 0.12,
         "threat_dist": {"Laughable Low": 0.60, "Moderate": 0.30, "High": 0.10, "Extreme": 0.00},
         "variety_prompts": [
             "Lean into slapstick physics or improbable gags that sometimes backfire.",
@@ -435,7 +435,8 @@ def generate_villain(tone="dark", force_new: bool = False):
     forced_power = None
     try:
         pool = POWER_POOLS.get(theme, [])
-        if pool and random.random() < 0.70:  # 70% curated, 30% model‑chosen
+        bias = 0.95 if theme == "epic" else 0.70  # stronger stickiness for Epic
+        if pool and random.random() < bias:
             forced_power = random.choice(pool)
     except Exception:
         forced_power = None
@@ -490,7 +491,7 @@ faction: Group or syndicate name
 origin: A single paragraph origin story with 4-5 sentences (about 80-120 words). No dialogue.
 '''
 
-    # Show token estimate
+    # Debug panel info
     set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
                    cost_only=False, is_cache_hit=False)
 
