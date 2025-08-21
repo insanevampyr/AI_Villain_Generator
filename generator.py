@@ -4,7 +4,7 @@ import re
 import json
 import time
 import random
-from typing import Dict, List, Deque, Optional, Tuple
+from typing import Dict, List, Deque, Optional, Tuple, Any
 from collections import deque
 
 import streamlit as st
@@ -95,7 +95,7 @@ def _draw_nonrepeating(kind: str, role: str) -> str:
     cdq.append(pick)
     return pick
 
-# --------------------------- Theme profiles (no Epic) ---------------------------
+# --------------------------- Theme profiles ---------------------------
 THEME_PROFILES: Dict[str, dict] = {
     "funny": {
         "temperature": 0.98,
@@ -254,30 +254,6 @@ def tech_term_count(text: str) -> int:
     t = (text or "").lower()
     return sum(1 for w in terms if w in t)
 
-def score_candidate(theme: str, data: dict) -> float:
-    p = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
-    text_blobs = " ".join([
-        str(data.get("power", "")),
-        str(data.get("origin", "")),
-        " ".join(data.get("crimes", []) if isinstance(data.get("crimes"), list) else [str(data.get("crimes", ""))]),
-        str(data.get("alias", "")),
-        str(data.get("lair", "")),
-    ]).lower()
-
-    score = 0.0
-    score += sum(1.0 for w in p["encourage"] if w in text_blobs)
-    score -= sum(1.5 for w in p["ban"] if w in text_blobs)
-
-    if theme in ("funny", "satirical"):
-        tech_hits = tech_term_count(text_blobs)
-        allow_prob = p.get("tech_allow_ratio", 0.0)
-        if random.random() > allow_prob:
-            score -= tech_hits * 2.0
-        else:
-            score -= max(0, tech_hits - 1) * 1.0
-
-    return score
-
 # --------------------------- OpenAI helpers ---------------------------
 def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2, **kwargs):
     last_err = None
@@ -354,24 +330,19 @@ def _infer_family(power: str) -> Tuple[str, Optional[str]]:
     for fam, keys in POWER_FAMILIES.items():
         if any(k in p for k in keys):
             return fam, next((k for k in keys if k in p), None)
-    # extra heuristics for our themed strings
     if "shadow" in p or "night" in p or "gloom" in p:
         return "shadow", "shadow"
     if "electro" in p or "lightning" in p or "ion" in p or "plasma" in p:
         return "electric", "electric"
-    return "tech", None  # neutral default for sci/unknown
+    return "tech", None
 
 def _ai_power_prompt(theme: str, encourage: List[str], ban: List[str]) -> str:
-    # concise system/user prompts; output must be ONE line: "Title — short cinematic description"
     style_line = f"Theme: {theme}. Encourage: {', '.join(encourage[:8])}. Avoid: {', '.join(ban[:8])}."
     rules = (
         "Return ONE power line ONLY in this exact format:\n"
         "Title — short cinematic description\n\n"
-        "Constraints:\n"
-        "- 5–9 words after the em dash; under 100 chars total.\n"
-        "- Use an em dash (—), not a hyphen.\n"
-        "- No real names, no quotes, no lists, no numbers, no emojis.\n"
-        "- Fit the theme; obey 'Avoid' terms.\n"
+        "Constraints:\n- 5–9 words after the em dash; under 100 chars total.\n"
+        "- Use an em dash (—), not a hyphen.\n- No real names, no quotes, no lists, no numbers, no emojis.\n- Fit the theme; obey 'Avoid' terms.\n"
     )
     return f"{style_line}\n{rules}"
 
@@ -381,9 +352,7 @@ def _valid_power_line(s: str, ban: List[str]) -> bool:
     if len(s) > 110: return False
     low = s.lower()
     if any(b in low for b in (ban or [])): return False
-    # basic junk filters
     if any(tok in low for tok in ["unknown", "lorem", "http", "www", "{", "}", "[", "]"]): return False
-    # looks like a single line
     if "\n" in s.strip(): return False
     return True
 
@@ -405,7 +374,6 @@ def _generate_ai_power(theme: str) -> Optional[str]:
         cand = (resp.choices[0].message.content or "").strip()
         if _valid_power_line(cand, profile.get("ban", [])):
             return cand
-        # one gentle retry with a stricter reminder
         fix = _chat_with_retry(
             messages=[
                 {"role": "system", "content": "Return ONE valid power line only: Title — short cinematic description."},
@@ -427,7 +395,6 @@ def _cache_ai_power(theme: str, power: str) -> None:
     theme_cache = st.session_state[key].setdefault(theme, [])
     if power not in theme_cache:
         theme_cache.append(power)
-        # keep last ~20 to avoid memory bloat
         if len(theme_cache) > 20:
             theme_cache.pop(0)
 
@@ -446,27 +413,21 @@ def select_power(theme: str, ai_power_hint: Optional[str] = None) -> Tuple[str, 
     pool = POWER_POOLS.get(key, [])
     use_list = (random.random() < 0.70)
 
-    # 70% listed
     if use_list and pool:
         return random.choice(pool), "listed"
 
-    # 30% AI path
-    # prefer any explicit hint if provided and valid
     if ai_power_hint and "—" in ai_power_hint and len(ai_power_hint) < 110:
         cand = ai_power_hint.strip()
     else:
         cand = _generate_ai_power(key)
 
     if cand and cand.strip() and cand.strip().lower() != "unknown":
-        # avoid duplicates in-session
         if not _is_cached(key, cand):
             _cache_ai_power(key, cand)
         return cand.strip(), "ai"
 
-    # hard fallback: listed pool (or any available pool) — never return Unknown
     if pool:
         return random.choice(pool), "listed"
-    # last resort: flatten all
     try:
         from config import ALL_POWERS
         if ALL_POWERS:
@@ -482,7 +443,7 @@ def _crime_examples_for_power(power: str) -> List[str]:
     k = min(5, len(base))
     return random.sample(base, k=k) if k > 0 else GENERIC_CRIMES[:3]
 
-# --- reduce copy-paste crimes
+# clichés we hard‑ban verbatim from the UI
 CICHE_CRIMES = [
     "ai drone heists of armored trucks",
     "city-wide ransomware blackouts",
@@ -577,12 +538,7 @@ def _crime_bans_and_style(power: str, theme: str) -> str:
     bans = []
     # hard-ban cliché tech crimes unless we're clearly tech/sci-fi/cyberpunk
     if fam not in ("tech",) and theme not in ("sci-fi", "cyberpunk"):
-        bans.extend([
-            "ai drone heists of armored trucks",
-            "weaponized autonomous car hijackings",
-            "city-wide ransomware blackouts",
-            "critical infrastructure intrusions",
-        ])
+        bans.extend(CICHE_CRIMES)
     # always ban exact copy of the clichés
     bans.extend(CICHE_CRIMES)
     ban_line = "; ".join(sorted(set(bans)))
@@ -595,7 +551,6 @@ def _crime_bans_and_style(power: str, theme: str) -> str:
 def _diversify_crimes_after(power: str, theme: str, crimes: List[str]) -> List[str]:
     fam = _infer_family_soft(power)
     base = FAMILY_SYNONYMS.get(fam, FAMILY_SYNONYMS.get(theme, [])) or FAMILY_SYNONYMS.get("tech", [])
-    # remove duplicates / clichés
     seen = set()
     out = []
     for c in crimes:
@@ -604,17 +559,51 @@ def _diversify_crimes_after(power: str, theme: str, crimes: List[str]) -> List[s
             continue
         seen.add(low)
         if any(low == bad for bad in CICHE_CRIMES):
-            # replace with a family‑flavored alternative
-            replacement = random.choice(base)
-            out.append(replacement)
+            out.append(random.choice(base))
         else:
             out.append(c.strip())
-    # ensure we still have 3–5 items
     while len(out) < 3 and base:
         pick = random.choice(base)
         if pick.lower() not in (x.lower() for x in out):
             out.append(pick)
     return out[:5]
+
+# --- normalize weird LLM crime shapes into clean strings ---
+_KEY_DROP = {"crime", "crime1", "crime2", "crime3", "target", "victim", "where", "who", "how"}
+
+def _flatten_text(v: Any) -> str:
+    s = " ".join(str(x) for x in v) if isinstance(v, (list, tuple)) else str(v)
+    s = re.sub(r"^\s*[-•]\s*", "", s.strip())
+    s = re.sub(r"^\s*['\"{[(]+|['\"})\]]+\s*$", "", s)  # strip wrapping quotes/braces
+    s = re.sub(r"\s+", " ", s)
+    return s.strip("-• ").strip()
+
+def _normalize_crime_item(x: Any) -> Optional[str]:
+    if x is None:
+        return None
+    if isinstance(x, dict):
+        parts = []
+        for k, v in x.items():
+            kl = str(k).strip().lower()
+            if kl in _KEY_DROP:
+                parts.append(_flatten_text(v))
+            else:
+                parts.append(_flatten_text(v))
+        s = ", ".join(p for p in parts if p)
+    else:
+        s = _flatten_text(x)
+        # kill obvious dict-likes accidentally stringified
+        s = re.sub(r"^['\"]?\{.*?:.*\}['\"]?$", "", s)
+    s = s.strip()
+    if not s:
+        return None
+    # basic length + no braces
+    if any(ch in s for ch in "{}[]"):
+        s = re.sub(r"[{}\[\]]", "", s).strip()
+    # keep between ~4..14 words
+    if not (4 <= len(s.split()) <= 14):
+        return None
+    return s
 
 # --------------------------- Origin helpers ---------------------------
 def ensure_crime_mentions_in_origin(origin: str, crimes: List[str]) -> bool:
@@ -646,9 +635,7 @@ def generate_origin(theme: str, power: str, crimes: List[str], alias: str, real_
             attempts=2,
         )
         text = (resp.choices[0].message.content or "").strip()
-        # quick coherence guard
         if power.lower() not in (text or "").lower() or not ensure_crime_mentions_in_origin(text, crimes):
-            # one cheap rewrite pass to force mentions
             fix = _chat_with_retry(
                 messages=[
                     {"role": "system", "content": "Edit to ensure the paragraph explicitly mentions the power and at least one listed crime. Keep voice; no quotes."},
@@ -659,16 +646,10 @@ def generate_origin(theme: str, power: str, crimes: List[str], alias: str, real_
             text = (fix.choices[0].message.content or "").strip() or text
         return text
     except Exception:
-        # fallback
-        return f"{real_name}, now known as {alias}, awakened {power.lower()} and turned to {crimes[0]} after a fateful break. The city learned too late that this was no accident."
+        return f"{real_name}, now known as {alias}, awakened {power.lower()} and turned to {crimes[0]} after a fateful break. The city learned too late."
 
 # =========================== selection rules ===========================
 def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
-    """
-    70/30 rule:
-      - 70%: draw first+last from lists (gendered or neutral) via shuffle-bag
-      - 30%: use AI-provided name (normalized). If only one token, add a last name.
-    """
     gender = (gender or "nonbinary").strip().lower()
     pool_key = gender if gender in ("male", "female", "nonbinary") else "nonbinary"
 
@@ -695,9 +676,9 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
     """
     POWER-FIRST PIPELINE:
       1) Select power (70% listed / 30% AI-generated).
-      2) Provide example crimes for that power family (context only).
-      3) Ask LLM for the remaining fields AND a fresh crimes[] list tailored to the power (with bans/variety).
-      4) Generate the origin paragraph using that crimes[] list.
+      2) Provide example crimes for that power family (context only) + HARD BANS/variety constraints.
+      3) Ask LLM for the remaining fields AND a fresh crimes[] list tailored to the power.
+      4) Normalize/clean crimes (strings only), de‑cliché, and generate the origin.
     """
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
@@ -705,11 +686,11 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
     # ---- Step 1: Power first
     power, power_source = select_power(theme, ai_power_hint=None)
 
-    # ---- Step 2: Crime examples (context only)
+    # ---- Step 2: Crime examples (context only) + bans/variety guidance
     crime_examples = _crime_examples_for_power(power)
     bans_and_style = _crime_bans_and_style(power, theme)
 
-    # ---- Step 3: Build JSON shell prompt (includes crimes[])
+    # ---- Step 3: Build JSON shell prompt (includes crimes[] to be invented)
     preface_lines: List[str] = [
         f"Theme: {theme}",
         f"Tone words: {profile['tone']}.",
@@ -772,25 +753,29 @@ gender, name, alias, weakness, nemesis, lair, catchphrase, faction, crimes
     real_name = select_real_name(gender=gender, ai_name_hint=data.get("name", ""))
     alias = data.get("alias", "Unknown") or "Unknown"
 
-    # crimes from AI (validate & diversify)
-    crimes = data.get("crimes") or []
-    if not isinstance(crimes, list):
-        crimes = []
-    crimes = [str(c).strip() for c in crimes if str(c).strip()]
-    crimes = [c for c in crimes if 4 <= len(c.split()) <= 14]
+    # crimes: normalize -> de‑cliché -> ensure 3–5
+    raw_crimes = data.get("crimes") or []
+    # coerce different shapes
+    if isinstance(raw_crimes, (str, dict)):
+        raw_crimes = [raw_crimes]
+    crimes: List[str] = []
+    for item in (raw_crimes if isinstance(raw_crimes, list) else []):
+        s = _normalize_crime_item(item)
+        if s:
+            crimes.append(s)
     crimes = _diversify_crimes_after(power, theme, crimes)
-
     if len(crimes) < 3:
-        # fallback: lightly remix examples to avoid being static
         base = crime_examples[:]
         random.shuffle(base)
-        crimes = [re.sub(r"\b(city|cities)\b", "the capital", c, flags=re.I) for c in base[:3]]
+        # lightly remix words to avoid exact duplicates
+        remix = [re.sub(r"\b(city|cities)\b", "the capital", c, flags=re.I) for c in base[:3]]
+        crimes = (crimes + remix)[:5]
 
     # threat
     computed = classify_threat_from_power(power)
     threat_level = adjust_threat_for_theme(theme, computed, power)
 
-    # origin (must reference power + at least one crime)
+    # origin
     origin = generate_origin(theme=theme, power=power, crimes=crimes, alias=alias, real_name=real_name)
     origin = _normalize_origin_names(origin, real_name, alias)
 
@@ -810,5 +795,4 @@ gender, name, alias, weakness, nemesis, lair, catchphrase, faction, crimes
         "theme": theme,
         "power_source": power_source,  # "listed" or "ai"
     }
-
     return result
