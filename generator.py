@@ -279,7 +279,7 @@ def score_candidate(theme: str, data: dict) -> float:
     return score
 
 # --------------------------- OpenAI helpers ---------------------------
-def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2):
+def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2, **kwargs):
     last_err = None
     for i in range(attempts):
         try:
@@ -288,6 +288,7 @@ def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2):
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                **kwargs,
             )
         except Exception as e:
             last_err = e
@@ -474,14 +475,148 @@ def select_power(theme: str, ai_power_hint: Optional[str] = None) -> Tuple[str, 
         pass
     return "Shadowstep — slip between nearby patches of darkness", "listed"
 
-def pick_crimes_for_power(power: str) -> List[str]:
+# ---------- Crimes: examples + anti‑cliché logic (AI invents the final list) ----------
+def _crime_examples_for_power(power: str) -> List[str]:
     fam, _ = _infer_family(power)
     base = POWER_CRIME_MAP.get(fam, GENERIC_CRIMES)
-    # choose 2-4 crimes, non-repeating
-    n = random.choice([2, 3, 3, 4])
-    picks = random.sample(base, k=min(n, len(base)))
-    return picks
+    k = min(5, len(base))
+    return random.sample(base, k=k) if k > 0 else GENERIC_CRIMES[:3]
 
+# --- reduce copy-paste crimes
+CICHE_CRIMES = [
+    "ai drone heists of armored trucks",
+    "city-wide ransomware blackouts",
+    "weaponized autonomous car hijackings",
+    "critical infrastructure intrusions",
+]
+
+FAMILY_SYNONYMS = {
+    "shadow": [
+        "staging mass blackouts of courage in crowded plazas",
+        "abductions through lightless corridors no camera can see",
+        "fear-pageants that stampede districts after midnight",
+        "silencing witnesses by swallowing their silhouettes",
+        "smothering search teams beneath living darkness",
+    ],
+    "mind": [
+        "crowd hypnosis that redirects entire rallies",
+        "memory swaps that make officials confess to others’ crimes",
+        "cult initiations that bind targets with implanted devotion",
+        "invisible suggestion heists during live broadcasts",
+        "mass loyalty flips inside courtrooms",
+    ],
+    "fire": [
+        "ritual burnlines that cut evacuation routes",
+        "melting safes into slag mid‑heist",
+        "arson mosaics as extortion signatures",
+        "flare storms that torch drone patrols",
+        "ember rain over financial districts",
+    ],
+    "funny": [
+        "confetti avalanches that jam turnstiles",
+        "banana‑slick evacuations of corporate lobbies",
+        "rubber‑anvil air drops on armored convoys",
+        "seltzer flood drills that short out alarms",
+        "sticker nets that cocoon security teams",
+    ],
+    "tech": [
+        "firmware ghosting of emergency sirens",
+        "worm‑ridden escrow swaps mid‑transaction",
+        "deepfake evacuations that empty vault floors",
+        "neural decoy loops for response AIs",
+        "smart‑grid misrouting that cooks substations silently",
+    ],
+    "sci-fi": [
+        "phase‑through smash‑and‑grabs on bonded vaults",
+        "gravity nicks that fold bridges for tolls",
+        "hardlight barricades that trap police columns",
+        "tachyon stutters to undo witness timelines",
+        "plasma scoring of armored rail convoys",
+    ],
+    "chaotic": [
+        "probability spikes that crash stock auctions",
+        "roulette disasters in crowded terminals",
+        "jammed destinies that misplace rescue teams",
+        "dice‑weighted evacuations with the wrong exits",
+        "catastrophe seeds that bloom in traffic grids",
+    ],
+    "mythic": [
+        "oath‑bound kidnappings at crossroads shrines",
+        "thorn mazes that swallow pursuit teams",
+        "storm‑tithes demanded from coastal districts",
+        "relic curses that turn evidence to salt",
+        "underworld tolls charged on river crossings",
+    ],
+    "satirical": [
+        "paperwork sieges that shut down hospitals",
+        "sponsor‑mandated evacuations as ad campaigns",
+        "ratio mobs hired to paralyze juries",
+        "contract switches that repossess public parks",
+        "brand excommunications of city departments",
+    ],
+    "air": [
+        "hurricane‑force terror strikes",
+        "weaponized sonic booms over cities",
+        "skyway thefts using pressure corridors",
+        "oxygen‑snatch raids inside high‑rises",
+        "drone squall scatterings (without autonomy hacks)",
+    ],
+}
+
+def _infer_family_soft(power: str) -> str:
+    p = (power or "").lower()
+    for fam, keys in POWER_FAMILIES.items():
+        if any(k in p for k in keys):
+            return fam
+    if "shadow" in p or "night" in p: return "shadow"
+    if "electro" in p or "lightning" in p or "ion" in p or "plasma" in p: return "tech"
+    return "tech"
+
+def _crime_bans_and_style(power: str, theme: str) -> str:
+    fam = _infer_family_soft(power)
+    bans = []
+    # hard-ban cliché tech crimes unless we're clearly tech/sci-fi/cyberpunk
+    if fam not in ("tech",) and theme not in ("sci-fi", "cyberpunk"):
+        bans.extend([
+            "ai drone heists of armored trucks",
+            "weaponized autonomous car hijackings",
+            "city-wide ransomware blackouts",
+            "critical infrastructure intrusions",
+        ])
+    # always ban exact copy of the clichés
+    bans.extend(CICHE_CRIMES)
+    ban_line = "; ".join(sorted(set(bans)))
+    variety = (
+        "Crimes must be distinct from each other, avoid repeating nouns ('drones', 'ransomware', 'cars'), "
+        "and vary targets (people, finance, transit, comms, landmarks)."
+    )
+    return f"HARD BANS (verbatim): {ban_line or '—'}\nVARIETY CONSTRAINTS: {variety}"
+
+def _diversify_crimes_after(power: str, theme: str, crimes: List[str]) -> List[str]:
+    fam = _infer_family_soft(power)
+    base = FAMILY_SYNONYMS.get(fam, FAMILY_SYNONYMS.get(theme, [])) or FAMILY_SYNONYMS.get("tech", [])
+    # remove duplicates / clichés
+    seen = set()
+    out = []
+    for c in crimes:
+        low = c.strip().lower()
+        if not low or low in seen:
+            continue
+        seen.add(low)
+        if any(low == bad for bad in CICHE_CRIMES):
+            # replace with a family‑flavored alternative
+            replacement = random.choice(base)
+            out.append(replacement)
+        else:
+            out.append(c.strip())
+    # ensure we still have 3–5 items
+    while len(out) < 3 and base:
+        pick = random.choice(base)
+        if pick.lower() not in (x.lower() for x in out):
+            out.append(pick)
+    return out[:5]
+
+# --------------------------- Origin helpers ---------------------------
 def ensure_crime_mentions_in_origin(origin: str, crimes: List[str]) -> bool:
     o = (origin or "").lower()
     return any(c.lower() in o for c in crimes)
@@ -560,22 +695,21 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
     """
     POWER-FIRST PIPELINE:
       1) Select power (70% listed / 30% AI-generated).
-      2) Choose crimes that logically align with that power.
-      3) Ask LLM for the remaining fields, BUT fix 'power' and constrain 'crimes'.
-      4) Generate the origin paragraph in a dedicated pass that ties power+crimes together.
+      2) Provide example crimes for that power family (context only).
+      3) Ask LLM for the remaining fields AND a fresh crimes[] list tailored to the power (with bans/variety).
+      4) Generate the origin paragraph using that crimes[] list.
     """
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
 
     # ---- Step 1: Power first
-    # 30% will now generate a fresh, theme-aware power (never 'Unknown')
-    ai_power_hint = None
-    power, power_source = select_power(theme, ai_power_hint=ai_power_hint)
+    power, power_source = select_power(theme, ai_power_hint=None)
 
-    # ---- Step 2: Crimes for that power
-    crimes_fixed = pick_crimes_for_power(power)
+    # ---- Step 2: Crime examples (context only)
+    crime_examples = _crime_examples_for_power(power)
+    bans_and_style = _crime_bans_and_style(power, theme)
 
-    # Build a compact prompt for LLM to fill the *other* fields, with power+crimes anchored.
+    # ---- Step 3: Build JSON shell prompt (includes crimes[])
     preface_lines: List[str] = [
         f"Theme: {theme}",
         f"Tone words: {profile['tone']}.",
@@ -587,66 +721,79 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
         preface_lines.append("Technology is rare; mild gadgets allowed only occasionally.")
     if theme == "chaotic":
         preface_lines.append("Inject one unpredictable chaos quirk in flavor text (not in JSON).")
-
     lines_block = "\n".join(preface_lines)
-    crimes_clause = "; ".join(crimes_fixed)
 
+    ex_line = "; ".join(crime_examples)
     prompt = f"""
-You will fill a villain JSON skeleton. The POWER and CRIMES are already chosen and MUST be used verbatim.
+Fill this villain JSON. The POWER is fixed. Use the EXAMPLE CRIMES as inspiration only (do not copy them verbatim).
 
 {lines_block}
 
+POWER: {power}
+EXAMPLE CRIMES (inspiration only): {ex_line}
+
+{bans_and_style}
+
 Rules:
-- Use the provided POWER exactly as given (do not reword it).
-- Set crimes to a short list derived ONLY from: {crimes_clause}.
-- Real name must be modern FIRST + LAST only (no titles), unrelated to power.
+- Invent 3–5 unique, power-specific crimes. No duplicates. No generic phrasing.
+- Vary targets (people, finance, transit, comms, landmarks). Keep each crime 5–12 words.
+- Do NOT reuse the example crimes verbatim; remix or escalate to suit the power.
+- Real name is modern FIRST + LAST only (no titles), unrelated to power.
 - Gender ∈ ["male","female","nonbinary"]; if unsure, pick one.
-- Alias/codename creative and distinct from real name; avoid 'dark'/'shadow' clichés.
+- Alias creative and distinct from real name; avoid overused 'dark'/'shadow' unless theme demands it.
 - Keep JSON valid and compact. No comments.
 
 Return JSON with keys ONLY:
-gender, name, alias, weakness, nemesis, lair, catchphrase, faction
+gender, name, alias, weakness, nemesis, lair, catchphrase, faction, crimes
 """.strip()
 
-    # token estimate for your debug panel
-    set_debug_info(context="Villain Shell (fixed power/crimes)", prompt=prompt, max_output_tokens=300,
+    set_debug_info(context="Villain Shell (AI crimes)", prompt=prompt, max_output_tokens=360,
                    cost_only=False, is_cache_hit=False)
 
-    # --- Call LLM to fill the shell fields ---
     resp = _chat_with_retry(
-        messages=[
-            {"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=300,
+        messages=[{"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
+                  {"role": "user", "content": prompt}],
+        max_tokens=360,
         temperature=profile["temperature"],
+        presence_penalty=0.6,
+        frequency_penalty=0.7,
         attempts=2,
     )
     txt = (resp.choices[0].message.content or "").strip()
-    data = _coerce_json(txt) or _fix_json_with_llm(txt)
-    if not data:
-        data = {}
+    data = _coerce_json(txt) or _fix_json_with_llm(txt) or {}
 
     # gender
     gender = (data.get("gender") or "").lower().strip()
     if gender not in {"male", "female", "nonbinary"}:
         gender = "nonbinary"
 
-    # ensure shuffle-bags exist, then choose name via 70/30 rule
+    # names
     _ensure_bags()
     real_name = select_real_name(gender=gender, ai_name_hint=data.get("name", ""))
-
     alias = data.get("alias", "Unknown") or "Unknown"
 
-    # ---- Threat from power
+    # crimes from AI (validate & diversify)
+    crimes = data.get("crimes") or []
+    if not isinstance(crimes, list):
+        crimes = []
+    crimes = [str(c).strip() for c in crimes if str(c).strip()]
+    crimes = [c for c in crimes if 4 <= len(c.split()) <= 14]
+    crimes = _diversify_crimes_after(power, theme, crimes)
+
+    if len(crimes) < 3:
+        # fallback: lightly remix examples to avoid being static
+        base = crime_examples[:]
+        random.shuffle(base)
+        crimes = [re.sub(r"\b(city|cities)\b", "the capital", c, flags=re.I) for c in base[:3]]
+
+    # threat
     computed = classify_threat_from_power(power)
     threat_level = adjust_threat_for_theme(theme, computed, power)
 
-    # ---- Step 3: Origin (power+crimes explicitly tied)
-    origin = generate_origin(theme=theme, power=power, crimes=crimes_fixed, alias=alias, real_name=real_name)
+    # origin (must reference power + at least one crime)
+    origin = generate_origin(theme=theme, power=power, crimes=crimes, alias=alias, real_name=real_name)
     origin = _normalize_origin_names(origin, real_name, alias)
 
-    # ---- Assemble final result (crimes anchored)
     result = {
         "name": real_name,
         "alias": alias,
@@ -655,14 +802,13 @@ gender, name, alias, weakness, nemesis, lair, catchphrase, faction
         "nemesis": data.get("nemesis", "Unknown"),
         "lair": data.get("lair", "Unknown"),
         "catchphrase": data.get("catchphrase", "Unknown"),
-        "crimes": crimes_fixed[:],  # fixed set
+        "crimes": crimes,
         "threat_level": threat_level,
         "faction": data.get("faction", "Unknown"),
         "origin": origin,
         "gender": gender,
         "theme": theme,
-        # light debug metadata for Airtable/logs if you want to store it
-        "power_source": power_source,   # "listed" or "ai"
+        "power_source": power_source,  # "listed" or "ai"
     }
 
     return result
