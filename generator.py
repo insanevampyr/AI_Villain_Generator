@@ -1,50 +1,45 @@
-import openai
+# generator.py
 import os
-import streamlit as st
-from dotenv import load_dotenv
-import random
-import json
 import re
+import json
 import time
+import random
 from typing import Dict, List, Deque, Optional
 from collections import deque
+
+import streamlit as st
+from dotenv import load_dotenv
+import openai
 
 from optimization_utils import set_debug_info
 from config import POWER_POOLS
 
-# Load key from st.secrets first, fallback to .env locally
+# --- API key bootstrap ---
 if not st.secrets:
     load_dotenv()
-openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
+openai.api_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
 
 # -------- Names: import pools from config --------
 try:
     from config import MALE_NAMES, FEMALE_NAMES, NEUTRAL_NAMES, LAST_NAMES
 except Exception:
-    # Minimal fallbacks to avoid crashes if config.py is missing names.
+    # safe fallbacks
     MALE_NAMES = ["Alex", "Benjamin", "Carter", "Diego", "Ethan", "Gavin", "Hunter", "Isaac", "Jacob", "Liam"]
     FEMALE_NAMES = ["Ava", "Bella", "Camila", "Chloe", "Elena", "Emma", "Hannah", "Isabella", "Layla", "Lily"]
     NEUTRAL_NAMES = ["Avery", "Blair", "Casey", "Charlie", "Dakota", "Eden", "Emery", "Jordan", "Quinn", "Riley"]
     LAST_NAMES = ["Reed", "Hart", "Lane", "Sloan", "Hayes", "Quinn", "Rivera", "Nguyen", "Khan", "Silva"]
 
-# Optional: remove neutral names from gendered pools to reduce overlap bias
+# --- small de-dupe so neutral names don't dominate gendered lists
 def _dedup_across_pools():
-    neutral_set = set(n.lower() for n in NEUTRAL_NAMES)
+    neutral_set = {n.lower() for n in NEUTRAL_NAMES}
     def _filter(pool):
-        out = []
-        for n in pool:
-            if n.lower() not in neutral_set:
-                out.append(n)
-        return out
+        return [n for n in pool if n and n.strip() and n.lower() not in neutral_set]
     return _filter(MALE_NAMES), _filter(FEMALE_NAMES)
 
 MALE_NAMES, FEMALE_NAMES = _dedup_across_pools()
 
-# =============
-# Shuffle-bag
-# =============
+# ============= Shuffle-bag for non-repeating names =============
 class ShuffleBag:
-    """Draw without replacement; reshuffle when empty."""
     def __init__(self, items: List[str]):
         self.pool: List[str] = list(dict.fromkeys([i.strip() for i in items if i and i.strip()]))
         self.queue: Deque[str] = deque()
@@ -100,9 +95,7 @@ def _draw_nonrepeating(kind: str, role: str) -> str:
     cdq.append(pick)
     return pick
 
-# ---------------------------
-# Theme profiles
-# ---------------------------
+# --------------------------- Theme profiles (no Epic) ---------------------------
 THEME_PROFILES: Dict[str, dict] = {
     "funny": {
         "temperature": 0.98,
@@ -197,21 +190,18 @@ THEME_PROFILES: Dict[str, dict] = {
 LEVEL_ORDER = ["Laughable Low", "Moderate", "High", "Extreme"]
 LEVEL_INDEX = {lvl: i for i, lvl in enumerate(LEVEL_ORDER)}
 
-# ---------------------------
-# Helpers: gender + name normalization + threat mapping
-# ---------------------------
+# --------------------------- helpers ---------------------------
 TITLE_PATTERN = re.compile(r"^(dr\.?|mr\.?|mrs\.?|ms\.?|mx\.?)\s+", re.I)
 
-def infer_gender_from_origin(origin):
-    origin_lower = (origin or "").lower()
-    if " she " in origin_lower or origin_lower.startswith("she "):
+def infer_gender_from_origin(origin: str):
+    o = (origin or "").lower()
+    if " she " in o or o.startswith("she "):
         return "female"
-    elif " he " in origin_lower or origin_lower.startswith("he "):
+    if " he " in o or o.startswith("he "):
         return "male"
     return None
 
 def normalize_real_name(name: str) -> str:
-    """Strip titles, collapse whitespace, title-case both parts; ensure at least first+last."""
     if not name:
         return "Unknown Unknown"
     n = TITLE_PATTERN.sub("", name.strip())
@@ -271,7 +261,7 @@ def score_candidate(theme: str, data: dict) -> float:
         str(data.get("origin", "")),
         " ".join(data.get("crimes", []) if isinstance(data.get("crimes"), list) else [str(data.get("crimes", ""))]),
         str(data.get("alias", "")),
-        str(data.get("lair", ""))
+        str(data.get("lair", "")),
     ]).lower()
 
     score = 0.0
@@ -288,6 +278,7 @@ def score_candidate(theme: str, data: dict) -> float:
 
     return score
 
+# --------------------------- OpenAI helpers ---------------------------
 def _chat_with_retry(messages, max_tokens=500, temperature=0.95, attempts=2):
     last_err = None
     for i in range(attempts):
@@ -335,13 +326,8 @@ def _fix_json_with_llm(bad_text: str):
         return None
 
 def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
-    """
-    Make the origin paragraph consistently use our chosen real_name and alias.
-    Keep wording and length very close; remove any other personal names the LLM invented.
-    """
     if not text:
         return text
-
     system = (
         "You are editing a short villain origin paragraph. "
         "Keep the style and facts, but normalize names: "
@@ -349,11 +335,7 @@ def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
         "Remove or replace any other names. Do not add new characters or quotations. "
         "Return only the edited paragraph."
     )
-    user = (
-        f"REAL NAME: {real_name}\n"
-        f"ALIAS: {alias}\n\n"
-        f"Paragraph:\n{text}"
-    )
+    user = f"REAL NAME: {real_name}\nALIAS: {alias}\n\nParagraph:\n{text}"
     try:
         resp = _chat_with_retry(
             messages=[{"role": "system", "content": system},
@@ -365,68 +347,12 @@ def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
     except Exception:
         return text
 
-# --- Consistency helpers ---
-STOPWORDS = {"of","the","and","to","a","an","with","without","through","via","by","from",
-             "in","on","at","for","as","is","are","be","being","into","over","under"}
-
-def _power_keywords(power: str):
-    toks = re.findall(r"[A-Za-z]+", (power or "").lower())
-    return [t for t in toks if len(t) >= 4 and t not in STOPWORDS]
-
-def _consistency_hits(data: dict, kws: List[str]) -> int:
-    blob = " ".join([
-        str(data.get("origin","")),
-        " ".join(data.get("crimes", []) if isinstance(data.get("crimes"), list) else [str(data.get("crimes",""))]),
-        str(data.get("weakness","")), str(data.get("lair","")), str(data.get("catchphrase",""))
-    ]).lower()
-    return sum(1 for k in kws if k in blob)
-
-def _align_fields_with_power(theme: str, data: dict, power: str):
-    """Ask the model to rephrase only a few fields to tightly match the fixed power."""
-    system = (
-        "You rewrite JSON fields to align strictly with a FIXED superpower. "
-        "Keep tone/theme, keep facts coherent, avoid trademarks. "
-        "Return VALID JSON with exactly these keys: weakness, nemesis, lair, catchphrase, crimes, origin."
-    )
-
-    # IMPORTANT: lists only (no sets) so json.dumps never fails
-    rules = {}
-    payload = {
-        "theme": theme,
-        "fixed_power": power,
-        "rules": rules,  # dict of lists only
-        "current": {
-            "weakness": str(data.get("weakness", "")),
-            "nemesis": str(data.get("nemesis", "")),
-            "lair": str(data.get("lair", "")),
-            "catchphrase": str(data.get("catchphrase", "")),
-            "crimes": list(data.get("crimes") or []),
-            "origin": str(data.get("origin", "")),
-        }
-    }
-    user_payload = json.dumps(payload, ensure_ascii=False)
-
-    try:
-        resp = _chat_with_retry(
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user_payload}],
-            max_tokens=300, temperature=0.4, attempts=1
-        )
-        fixed = _coerce_json(resp.choices[0].message.content.strip())
-        if isinstance(fixed, dict) and all(k in fixed for k in ("weakness","nemesis","lair","catchphrase","crimes","origin")):
-            return fixed
-    except Exception:
-        pass
-    return None
-
-# ===========================
-# Name selection (70/30 rule)
-# ===========================
+# =========================== selection rules ===========================
 def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     """
-    Decide real name AFTER gender is known.
-      - 70%: draw first+last from shuffle-bags (gendered or neutral)
-      - 30%: use AI-produced name (normalized); if only one token, add a last name from bag
+    70/30 rule:
+      - 70%: draw first+last from lists (gendered or neutral) via shuffle-bag
+      - 30%: use AI-provided name (normalized). If only one token, add a last name.
     """
     gender = (gender or "nonbinary").strip().lower()
     pool_key = gender if gender in ("male", "female", "nonbinary") else "nonbinary"
@@ -451,10 +377,9 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
 
 def select_power(theme: str, ai_power_hint: Optional[str] = None) -> str:
     """
-    70/30 rule for power selection:
-      - 70%: pick from POWER_POOLS by theme (fast, consistent, no API)
-      - 30%: keep the AI-provided power from the profile
-    Powers may repeat by design (no shuffle-bag).
+    70/30 rule:
+      - 70%: pick from POWER_POOLS by theme (fast, consistent)
+      - 30%: keep/accept AI-provided power from the profile
     """
     key = (theme or "").strip().lower()
     pool = POWER_POOLS.get(key, [])
@@ -463,15 +388,13 @@ def select_power(theme: str, ai_power_hint: Optional[str] = None) -> str:
         return random.choice(pool)
     return (ai_power_hint or "Unknown").strip()
 
-# ---------------------------
-# Main
-# ---------------------------
-def generate_villain(tone="dark", force_new: bool = False):
+# =========================== main entry ===========================
+def generate_villain(tone: str = "dark", force_new: bool = False):
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
-    best_of = 1
+    best_of = 1  # keep it simple/reliable
 
-
+    # build prompt
     preface_lines: List[str] = [
         f"Theme: {theme}",
         f"Tone words: {profile['tone']}.",
@@ -485,9 +408,9 @@ def generate_villain(tone="dark", force_new: bool = False):
         preface_lines.append("Inject one unpredictable chaos quirk in the origin.")
 
     variety_prompt = random.choice(profile["variety_prompts"])
-    lines_block = "\n".join(preface_lines)  # <-- precompute to avoid backslash in f-string
+    lines_block = "\n".join(preface_lines)
 
-    prompt = f'''
+    prompt = f"""
 Create a unique and original supervillain character profile that strictly follows the **{theme}** theme.
 
 {lines_block}
@@ -515,13 +438,13 @@ crimes: List of crimes or signature actions
 threat_level: One of [Laughable Low, Moderate, High, Extreme] (based on how dangerous the power is)
 faction: Group or syndicate name
 origin: A single paragraph origin story with 4-5 sentences (about 80-120 words). No dialogue.
-'''
+""".strip()
 
-    # Show token estimate
+    # token estimate for your debug panel
     set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
                    cost_only=False, is_cache_hit=False)
 
-    # --- Best-of-N drafts ---
+    # --- Best-of sampling ---
     candidates = []
     for _ in range(best_of):
         resp = _chat_with_retry(
@@ -533,45 +456,57 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
             temperature=profile["temperature"],
             attempts=2,
         )
-        txt = resp.choices[0].message.content.strip()
+        txt = (resp.choices[0].message.content or "").strip()
         data = _coerce_json(txt) or _fix_json_with_llm(txt)
-        if not data:
-            continue
-        candidates.append(data)
+        if data:
+            candidates.append(data)
 
     if not candidates:
+        # guaranteed safe fallback dict (prevents NoneType everywhere)
         return {
-            "name": "Error", "alias": "Parse Failure", "power": "Unknown", "weakness": "Unknown",
-            "nemesis": "Unknown", "lair": "Unknown",
+            "name": "Generator Error",
+            "alias": "Parse Failure",
+            "power": "Unknown",
+            "weakness": "Unknown",
+            "nemesis": "Unknown",
+            "lair": "Unknown",
             "catchphrase": "The generator failed to return valid JSON.",
-            "crimes": [], "threat_level": "Unknown", "faction": "Unknown",
-            "origin": "The generator failed to parse the villain data.", "gender": "unknown", "theme": theme
+            "crimes": [],
+            "threat_level": "Moderate",
+            "faction": "Unknown",
+            "origin": "The generator failed to parse the villain data.",
+            "gender": "nonbinary",
+            "theme": theme,
         }
 
-    # Pick best by theme score
+    # pick the best candidate by theme score
     best = max(candidates, key=lambda d: score_candidate(theme, d))
 
-    # --- Gender first, then name selection (70/30) ---
+    # gender
     gender = (best.get("gender") or "").lower().strip()
     if gender not in {"male", "female", "nonbinary"}:
         gender = infer_gender_from_origin(best.get("origin", "")) or random.choice(["male", "female", "nonbinary"])
 
-    # ensure bags/cooldowns exist before name selection
+    # ensure shuffle-bags exist, then choose name via 70/30 rule
     _ensure_bags()
-
-    # Choose real name with 70% list / 30% AI rule
     real_name = select_real_name(gender=gender, ai_name_hint=best.get("name", ""))
 
-    # ---- POWER (pick once; no post-hoc override) ----
+    # choose power via 70/30 rule (no forced/epic logic anymore)
     power = select_power(theme, ai_power_hint=best.get("power", "Unknown"))
-
 
     # compute + adjust threat
     computed = classify_threat_from_power(power)
     threat_level = adjust_threat_for_theme(theme, computed, power)
 
-    origin = best.get("origin", "Unknown")
-    origin = _normalize_origin_names(origin, real_name, best.get("alias", "Unknown"))
+    # clean origin names to match our chosen real name / alias
+    origin = _normalize_origin_names(best.get("origin", "Unknown"), real_name, best.get("alias", "Unknown"))
+
+    # ensure crimes is a list
+    crimes = best.get("crimes", [])
+    if isinstance(crimes, str):
+        crimes = [crimes] if crimes else []
+    elif crimes is None:
+        crimes = []
 
     result = {
         "name": real_name,
@@ -581,10 +516,12 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
         "nemesis": best.get("nemesis", "Unknown"),
         "lair": best.get("lair", "Unknown"),
         "catchphrase": best.get("catchphrase", "Unknown"),
-        "crimes": best.get("crimes", [] if best.get("crimes") is None else best.get("crimes")),
+        "crimes": crimes,
         "threat_level": threat_level,
         "faction": best.get("faction", "Unknown"),
         "origin": origin,
         "gender": gender,
         "theme": theme,
     }
+
+    return result
