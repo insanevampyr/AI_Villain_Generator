@@ -87,7 +87,6 @@ class ShuffleBag:
         _SYS_RNG.shuffle(tmp)  # <- use strong RNG
         self.queue = deque(tmp)
 
-
     def draw(self) -> Optional[str]:
         if not self.queue:
             self._reshuffle()
@@ -685,37 +684,46 @@ def generate_origin(theme: str, power: str, crimes: List[str], alias: str, real_
 
 # =========================== selection rules ===========================
 def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
+    """
+    Picks a real name while enforcing daily uniqueness across app restarts.
+    If ai_name_hint is provided and valid, it will be used (and registered).
+    """
     gender = (gender or "nonbinary").strip().lower()
     pool_key = gender if gender in ("male", "female", "nonbinary") else "nonbinary"
 
-    use_list = (random.random() < 0.70)
-    if use_list:
-        first = _draw_nonrepeating(pool_key, role="first") or "Alex"
-        last = _draw_nonrepeating("last", role="last") or "Reed"
-        return normalize_real_name(f"{first} {last}")
-
+    # If the model suggested a name, normalize and use it when possible.
     raw = (ai_name_hint or "").strip()
     if raw:
         nm = normalize_real_name(raw)
         if len(nm.split()) < 2:
             last = _draw_nonrepeating("last", role="last") or "Reed"
-            return normalize_real_name(f"{nm} {last}")
-        return nm
+            nm = normalize_real_name(f"{nm} {last}")
+        used_today = _load_today_registry()
+        if nm not in used_today:
+            used_today.add(nm)
+            _save_today_registry(used_today)
+            return nm
+        # if already used, fall through to fresh generation
 
-    first = _draw_nonrepeating(pool_key, role="first") or "Alex"
-    last = _draw_nonrepeating("last", role="last") or "Reed"
-    return normalize_real_name(f"{first} {last}")
+    # Generate names with a daily registry to avoid duplicates across reboots.
     used_today = _load_today_registry()
-    attempts = 0
-    while attempts < 20:
-        first = _draw_nonrepeating(pool_key, "first") or "Alex"
-        last  = _draw_nonrepeating("last", "last") or "Reed"
+    for _ in range(40):
+        first = _draw_nonrepeating(pool_key, role="first") or "Alex"
+        last  = _draw_nonrepeating("last", role="last") or "Reed"
         full  = normalize_real_name(f"{first} {last}")
         if full not in used_today:
             used_today.add(full)
             _save_today_registry(used_today)
             return full
-        attempts += 1
+
+    # Fallback if somehow all attempts collide
+    first = _draw_nonrepeating(pool_key, role="first") or "Alex"
+    last  = _draw_nonrepeating("last", role="last") or "Reed"
+    full  = normalize_real_name(f"{first} {last}")
+    used_today.add(full)
+    _save_today_registry(used_today)
+    return full
+
 # =========================== main entry ===========================
 def generate_villain(tone: str = "dark", force_new: bool = False):
     """

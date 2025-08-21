@@ -10,4 +10,4 @@ __pycache__/
 
 /fonts/ (optional, if you want to shrink repo size—keep if portability matters)
 
-*.pyc, .env, etc.
+*.pyc, .env, etc..name_registry.json
