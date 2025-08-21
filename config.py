@@ -313,30 +313,121 @@ def _dedupe(seq):
 ALL_POWERS = _dedupe([p for lst in POWER_POOLS.values() for p in lst])
 
 # ==============================================================
-# Power → Crimes mapping (anchor for coherence)
-# Keys are broad families. Family detection is keyword-based.
+# Power → Crimes mapping (EXAMPLES ONLY)
+# Use these as guidance; the model should invent custom crimes.
 # ==============================================================
 POWER_CRIME_MAP = {
-    "fire": ["arson", "destruction of property", "intimidation", "terror threats"],
-    "ice": ["infrastructure sabotage", "hostage coercion", "targeted blackouts", "public endangerment"],
-    "electric": ["grid attacks", "communications disruption", "extortion via blackouts", "cyber‑sabotage"],
-    "shadow": ["break‑ins", "kidnapping", "disappearances", "fear campaigns"],
-    "mind": ["kidnapping", "extortion", "terror plots", "coercion", "subversion"],
-    "telekinesis": ["high‑value theft", "assassination attempts", "vehicle tossing", "containment breaches"],
-    "gravity": ["infrastructure collapse", "bank vault breaches", "mass endangerment"],
-    "time": ["grand larceny with alibis", "evidence tampering", "temporal blackmail"],
-    "plant": ["ecoterrorism", "public space seizures", "hostage gardens"],
-    "tech": ["data theft", "ransomware", "identity siphoning", "critical system intrusion"],
-    "water": ["flooding districts", "harbor extortion", "shipping sabotage"],
-    "earth": ["tunnel heists", "structural sabotage", "quarry theft"],
-    "air": ["aerial smuggling", "drone hijacking", "city‑wide panic stunts"],
-    "luck": ["casino fraud", "rigged lotteries", "high‑risk heists"],
-    "illusion": ["confidence scams", "political manipulation", "mass deception"],
+    "fire": [
+        "arson sprees that level city blocks",
+        "molten ransom threats at landmarks",
+        "fiery intimidation of officials",
+        "ritual burnings that terrify communities",
+        "explosive warehouse torchings"
+    ],
+    "ice": [
+        "freezing entire transit lines",
+        "encasing hostages in crystal prisons",
+        "weaponizing blizzards against districts",
+        "blackmail via frozen infrastructure",
+        "flash-freezing evidence at crime scenes"
+    ],
+    "electric": [
+        "grid-wide blackouts for extortion",
+        "EMP strikes against hospitals",
+        "holding cities hostage with storm power",
+        "shock-torture of political enemies",
+        "cyber-sabotage paired with live outages"
+    ],
+    "shadow": [
+        "orchestrated disappearances in alleys",
+        "night-time abductions no camera sees",
+        "fear campaigns using stalking silhouettes",
+        "infiltration of prisons or vaults unseen",
+        "psychological warfare via mass paranoia"
+    ],
+    "mind": [
+        "large-scale hypnosis at rallies",
+        "blackmail via memory rewrites",
+        "cult-style mind enslavement",
+        "political manipulation of leaders",
+        "orchestrating riots with implanted rage"
+    ],
+    "telekinesis": [
+        "bank heists with flying safes",
+        "assassinations via invisible force",
+        "toppling skyscrapers for intimidation",
+        "containment breach of super-prisons",
+        "weaponizing traffic as chaos"
+    ],
+    "gravity": [
+        "collapsing bridges into rivers",
+        "blackmail with artificial sinkholes",
+        "weaponizing orbital drops",
+        "mass crush-events at stadiums",
+        "vault implosions for clean theft"
+    ],
+    "time": [
+        "perfect alibi heists across timelines",
+        "tampering with court evidence retroactively",
+        "aging enemies into weakness",
+        "rewinding disasters to exploit them",
+        "temporal blackmail of future knowledge"
+    ],
+    "plant": [
+        "strangling buildings with invasive roots",
+        "bio-terror gardens in public squares",
+        "kidnappings into living labyrinths",
+        "reclaiming city blocks as wild zones",
+        "toxic pollen weaponized at protests"
+    ],
+    "tech": [
+        "AI drone heists of armored trucks",
+        "city-wide ransomware blackouts",
+        "identity siphoning at scale",
+        "critical infrastructure intrusions",
+        "weaponized autonomous car hijackings"
+    ],
+    "water": [
+        "flooding financial districts",
+        "piracy on modern shipping lanes",
+        "harbor extortion with tidal surges",
+        "toxic spill blackmail operations",
+        "sabotaging water treatment plants"
+    ],
+    "earth": [
+        "vault breaches via tunneling",
+        "weaponized earthquakes downtown",
+        "quarry and mineral theft rings",
+        "burying rivals alive in rubble",
+        "sinkhole extortion plots"
+    ],
+    "air": [
+        "city-wide panic stunts via skywriting",
+        "hijacking drones mid-flight",
+        "airborne smuggling routes",
+        "hurricane-force terror strikes",
+        "weaponized sonic booms over cities"
+    ],
+    "luck": [
+        "casino mega-frauds",
+        "rigged national lotteries",
+        "high-stakes heists with impossible odds",
+        "stock market manipulation via chance",
+        "assassinations disguised as 'accidents'"
+    ],
+    "illusion": [
+        "mass deception at political rallies",
+        "confidence scams on a global scale",
+        "illusionary hostage negotiations",
+        "fabricated city-wide events",
+        "impersonation of officials for extortion"
+    ],
 }
 
 # ==============================================================
 # Power families: keywords used to infer family from a freeform
-# power line (including your themed power strings).
+# power line (including themed power strings).
+# (Kept for guidance / optional use.)
 # ==============================================================
 POWER_FAMILIES = {
     "fire": ["fire", "ember", "flame", "pyro", "pale fire"],
