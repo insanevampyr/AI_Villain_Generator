@@ -563,7 +563,8 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
     real_name = select_real_name(gender=gender, ai_name_hint=best.get("name", ""))
 
     # ---- POWER (pick once; no post-hoc override) ----
-    power = forced_power or best.get("power", "Unknown")
+    power = select_power(theme, ai_power_hint=best.get("power", "Unknown"))
+
 
     # compute + adjust threat
     computed = classify_threat_from_power(power)
