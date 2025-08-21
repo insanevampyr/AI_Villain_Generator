@@ -11,6 +11,42 @@ import streamlit as st
 from dotenv import load_dotenv
 import openai
 
+import secrets
+from datetime import datetime
+
+# Strong RNG for shuffles and picks
+_SYS_RNG = secrets.SystemRandom()
+random.seed(secrets.token_bytes(32))  # diversify any legacy random.* calls
+
+REGISTRY_PATH = os.path.join(os.path.dirname(__file__), ".name_registry.json")
+
+def _load_today_registry() -> set:
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(REGISTRY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+    except Exception:
+        data = {}
+    # prune old days and normalize
+    used = set(data.get(today, []))
+    # keep only today in file
+    data = {today: sorted(used)}
+    try:
+        with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=0)
+    except Exception:
+        pass
+    return used
+
+def _save_today_registry(used: set) -> None:
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
+            json.dump({today: sorted(used)}, f, ensure_ascii=False, indent=0)
+    except Exception:
+        pass
+
+
 from optimization_utils import set_debug_info
 from config import POWER_POOLS, POWER_CRIME_MAP, POWER_FAMILIES, GENERIC_CRIMES
 
@@ -44,14 +80,13 @@ class ShuffleBag:
         self.pool: List[str] = list(dict.fromkeys([i.strip() for i in items if i and i.strip()]))
         self.queue: Deque[str] = deque()
         self._reshuffle()
-
     def _reshuffle(self):
         if not self.pool:
-            self.queue = deque()
-            return
+            self.queue = deque(); return
         tmp = self.pool[:]
-        random.shuffle(tmp)
+        _SYS_RNG.shuffle(tmp)  # <- use strong RNG
         self.queue = deque(tmp)
+
 
     def draw(self) -> Optional[str]:
         if not self.queue:
@@ -670,7 +705,17 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     first = _draw_nonrepeating(pool_key, role="first") or "Alex"
     last = _draw_nonrepeating("last", role="last") or "Reed"
     return normalize_real_name(f"{first} {last}")
-
+    used_today = _load_today_registry()
+    attempts = 0
+    while attempts < 20:
+        first = _draw_nonrepeating(pool_key, "first") or "Alex"
+        last  = _draw_nonrepeating("last", "last") or "Reed"
+        full  = normalize_real_name(f"{first} {last}")
+        if full not in used_today:
+            used_today.add(full)
+            _save_today_registry(used_today)
+            return full
+        attempts += 1
 # =========================== main entry ===========================
 def generate_villain(tone: str = "dark", force_new: bool = False):
     """
