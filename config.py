@@ -82,7 +82,7 @@ POWER_POOLS = {
         "Cartoon Physics — once per scene, ignore normal physics",
     ],
 
-       # ----------------------------------------------------------
+    # ----------------------------------------------------------
     # SCI‑FI: clean techno‑poetry, energy, physics, devices.
     # ----------------------------------------------------------
     "sci-fi": [
@@ -302,7 +302,6 @@ STYLE_TO_POWER_POOL = {
 }
 
 # Helper: flattened, de‑duped list of every power (if needed)
-
 def _dedupe(seq):
     seen, out = set(), []
     for s in seq:
@@ -312,3 +311,57 @@ def _dedupe(seq):
     return out
 
 ALL_POWERS = _dedupe([p for lst in POWER_POOLS.values() for p in lst])
+
+# ==============================================================
+# Power → Crimes mapping (anchor for coherence)
+# Keys are broad families. Family detection is keyword-based.
+# ==============================================================
+POWER_CRIME_MAP = {
+    "fire": ["arson", "destruction of property", "intimidation", "terror threats"],
+    "ice": ["infrastructure sabotage", "hostage coercion", "targeted blackouts", "public endangerment"],
+    "electric": ["grid attacks", "communications disruption", "extortion via blackouts", "cyber‑sabotage"],
+    "shadow": ["break‑ins", "kidnapping", "disappearances", "fear campaigns"],
+    "mind": ["kidnapping", "extortion", "terror plots", "coercion", "subversion"],
+    "telekinesis": ["high‑value theft", "assassination attempts", "vehicle tossing", "containment breaches"],
+    "gravity": ["infrastructure collapse", "bank vault breaches", "mass endangerment"],
+    "time": ["grand larceny with alibis", "evidence tampering", "temporal blackmail"],
+    "plant": ["ecoterrorism", "public space seizures", "hostage gardens"],
+    "tech": ["data theft", "ransomware", "identity siphoning", "critical system intrusion"],
+    "water": ["flooding districts", "harbor extortion", "shipping sabotage"],
+    "earth": ["tunnel heists", "structural sabotage", "quarry theft"],
+    "air": ["aerial smuggling", "drone hijacking", "city‑wide panic stunts"],
+    "luck": ["casino fraud", "rigged lotteries", "high‑risk heists"],
+    "illusion": ["confidence scams", "political manipulation", "mass deception"],
+}
+
+# ==============================================================
+# Power families: keywords used to infer family from a freeform
+# power line (including your themed power strings).
+# ==============================================================
+POWER_FAMILIES = {
+    "fire": ["fire", "ember", "flame", "pyro", "pale fire"],
+    "ice": ["ice", "frost", "cryo", "gravecold"],
+    "electric": ["electro", "lightning", "ion", "plasma", "volt"],
+    "shadow": ["shadow", "umbra", "noct", "night", "gloom", "wraith"],
+    "mind": ["mind", "hypno", "psych", "compulsion", "dominate"],
+    "telekinesis": ["telekinesis", "kinesis", "force"],
+    "gravity": ["grav", "singularity", "black hole"],
+    "time": ["time", "chron", "tachyon", "sandglass"],
+    "plant": ["verdant", "root", "thorn", "vine"],
+    "tech": ["drone", "holo", "hardlight", "cyber", "data", "neural", "nano", "grid"],
+    "water": ["tide", "water", "hydro"],
+    "earth": ["stone", "earth", "geo", "granite"],
+    "air": ["wind", "air", "storm", "sky"],
+    "luck": ["luck", "fortune", "probability", "dice", "gambler"],
+    "illusion": ["illusion", "mirage", "cloak", "mask"],
+}
+
+# Generic crimes fallback (used if a family isn't detected)
+GENERIC_CRIMES = [
+    "grand larceny",
+    "extortion",
+    "kidnapping",
+    "public endangerment",
+    "conspiracy",
+    "racketeering",
+]

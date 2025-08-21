@@ -4,7 +4,7 @@ import re
 import json
 import time
 import random
-from typing import Dict, List, Deque, Optional
+from typing import Dict, List, Deque, Optional, Tuple
 from collections import deque
 
 import streamlit as st
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 import openai
 
 from optimization_utils import set_debug_info
-from config import POWER_POOLS
+from config import POWER_POOLS, POWER_CRIME_MAP, POWER_FAMILIES, GENERIC_CRIMES
 
 # --- API key bootstrap ---
 if not st.secrets:
@@ -347,6 +347,86 @@ def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
     except Exception:
         return text
 
+# =========================== Power-first helpers ===========================
+def _infer_family(power: str) -> Tuple[str, Optional[str]]:
+    p = (power or "").lower()
+    for fam, keys in POWER_FAMILIES.items():
+        if any(k in p for k in keys):
+            return fam, next((k for k in keys if k in p), None)
+    # extra heuristics for our themed strings
+    if "shadow" in p or "night" in p or "gloom" in p:
+        return "shadow", "shadow"
+    if "electro" in p or "lightning" in p or "ion" in p or "plasma" in p:
+        return "electric", "electric"
+    return "tech", None  # neutral default for sci/unknown
+
+def select_power(theme: str, ai_power_hint: Optional[str] = None) -> Tuple[str, str]:
+    """
+    70/30 rule:
+      - 70%: pick from POWER_POOLS by theme (fast, consistent)
+      - 30%: accept AI-provided power from the profile (if any)
+    Returns (power_text, source) where source ∈ {"listed","ai"}
+    """
+    key = (theme or "").strip().lower()
+    pool = POWER_POOLS.get(key, [])
+    use_list = (random.random() < 0.70)
+    if use_list and pool:
+        return random.choice(pool), "listed"
+    return (ai_power_hint or "Unknown").strip(), "ai"
+
+def pick_crimes_for_power(power: str) -> List[str]:
+    fam, _ = _infer_family(power)
+    base = POWER_CRIME_MAP.get(fam, GENERIC_CRIMES)
+    # choose 2-4 crimes, non-repeating
+    n = random.choice([2, 3, 3, 4])
+    picks = random.sample(base, k=min(n, len(base)))
+    return picks
+
+def ensure_crime_mentions_in_origin(origin: str, crimes: List[str]) -> bool:
+    o = (origin or "").lower()
+    return any(c.lower() in o for c in crimes)
+
+def _origin_prompt(theme: str, power: str, crimes: List[str], alias: str, real_name: str) -> str:
+    profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
+    style_line = f"Theme: {theme}. Tone: {profile['tone']}."
+    crime_line = "Crimes involved: " + ", ".join(crimes) + "."
+    rules = (
+        "Write a single-paragraph origin (4–5 sentences, 80–120 words). "
+        "It MUST explicitly mention the given POWER and at least one of the CRIMES. "
+        "No dialogue. Keep it safe-for-work. Use the REAL NAME for civilian identity and the ALIAS once."
+    )
+    return f"{style_line}\nPOWER: {power}\n{crime_line}\nREAL NAME: {real_name}\nALIAS: {alias}\n\n{rules}"
+
+def generate_origin(theme: str, power: str, crimes: List[str], alias: str, real_name: str) -> str:
+    prompt = _origin_prompt(theme, power, crimes, alias, real_name)
+    set_debug_info(context="Origin", prompt=prompt, max_output_tokens=180, cost_only=False, is_cache_hit=False)
+    try:
+        resp = _chat_with_retry(
+            messages=[
+                {"role": "system", "content": "You craft tight, vivid villain origins. Output only the paragraph."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=180,
+            temperature=THEME_PROFILES.get(theme, THEME_PROFILES["dark"])["temperature"],
+            attempts=2,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        # quick coherence guard
+        if power.lower() not in (text or "").lower() or not ensure_crime_mentions_in_origin(text, crimes):
+            # one cheap rewrite pass to force mentions
+            fix = _chat_with_retry(
+                messages=[
+                    {"role": "system", "content": "Edit to ensure the paragraph explicitly mentions the power and at least one listed crime. Keep voice; no quotes."},
+                    {"role": "user", "content": f"POWER: {power}\nCRIMES: {', '.join(crimes)}\n\nParagraph:\n{text}"},
+                ],
+                max_tokens=180, temperature=0.2, attempts=1,
+            )
+            text = (fix.choices[0].message.content or "").strip() or text
+        return text
+    except Exception:
+        # fallback
+        return f"{real_name}, now known as {alias}, awakened {power.lower()} and turned to {crimes[0]} after a fateful break. The city learned too late that this was no accident."
+
 # =========================== selection rules ===========================
 def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     """
@@ -375,26 +455,27 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     last = _draw_nonrepeating("last", role="last") or "Reed"
     return normalize_real_name(f"{first} {last}")
 
-def select_power(theme: str, ai_power_hint: Optional[str] = None) -> str:
-    """
-    70/30 rule:
-      - 70%: pick from POWER_POOLS by theme (fast, consistent)
-      - 30%: keep/accept AI-provided power from the profile
-    """
-    key = (theme or "").strip().lower()
-    pool = POWER_POOLS.get(key, [])
-    use_list = (random.random() < 0.70)
-    if use_list and pool:
-        return random.choice(pool)
-    return (ai_power_hint or "Unknown").strip()
-
 # =========================== main entry ===========================
 def generate_villain(tone: str = "dark", force_new: bool = False):
+    """
+    POWER-FIRST PIPELINE:
+      1) Select power (70% listed / 30% AI hint).
+      2) Choose crimes that logically align with that power.
+      3) Ask LLM for the remaining fields, BUT fix 'power' and constrain 'crimes'.
+      4) Generate the origin paragraph in a dedicated pass that ties power+crimes together.
+    """
     theme = (tone or "dark").strip().lower()
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
-    best_of = 1  # keep it simple/reliable
 
-    # build prompt
+    # ---- Step 1: Power first
+    # (We’ll still allow the model to suggest a power 30% of the time via ai_power_hint, but selection happens here.)
+    ai_power_hint = None  # initial run has no hint; kept for API parity
+    power, power_source = select_power(theme, ai_power_hint=ai_power_hint)
+
+    # ---- Step 2: Crimes for that power
+    crimes_fixed = pick_crimes_for_power(power)
+
+    # Build a compact prompt for LLM to fill the *other* fields, with power+crimes anchored.
     preface_lines: List[str] = [
         f"Theme: {theme}",
         f"Tone words: {profile['tone']}.",
@@ -405,123 +486,83 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
     if theme in ("funny", "satirical"):
         preface_lines.append("Technology is rare; mild gadgets allowed only occasionally.")
     if theme == "chaotic":
-        preface_lines.append("Inject one unpredictable chaos quirk in the origin.")
+        preface_lines.append("Inject one unpredictable chaos quirk in flavor text (not in JSON).")
 
-    variety_prompt = random.choice(profile["variety_prompts"])
     lines_block = "\n".join(preface_lines)
+    crimes_clause = "; ".join(crimes_fixed)
 
     prompt = f"""
-Create a unique and original supervillain character profile that strictly follows the **{theme}** theme.
+You will fill a villain JSON skeleton. The POWER and CRIMES are already chosen and MUST be used verbatim.
 
 {lines_block}
-{variety_prompt}
 
 Rules:
-- Choose ANY supervillain power concept from broad fiction (comics, anime, mythology) but DO NOT reuse copyrighted names or trademarks.
-- Real name must be modern, realistic FIRST and LAST name only (no titles). It MUST NOT reference the power (no "Flame", "Shade", etc).
-- Gender drives first-name selection: pick a name appropriate for the chosen gender (male/female/nonbinary). If nonbinary, use a unisex modern name.
-- Alias/codename MUST NOT be obviously "dark" or "shadow" themed, and must be different from their real name.
-- Keep everything safe-for-work (no graphic gore).
-- Keep JSON valid and compact.
+- Use the provided POWER exactly as given (do not reword it).
+- Set crimes to a short list derived ONLY from: {crimes_clause}.
+- Real name must be modern FIRST + LAST only (no titles), unrelated to power.
+- Gender ∈ ["male","female","nonbinary"]; if unsure, pick one.
+- Alias/codename creative and distinct from real name; avoid 'dark'/'shadow' clichés.
+- Keep JSON valid and compact. No comments.
 
-Return JSON with the following keys:
-
-gender: one of ["male","female","nonbinary"]
-name: Real full name (first + last only, no titles, modern, unrelated to power)
-alias: Creative codename (not derived from real name, and not 'dark'/'shadow' themed)
-power: Primary superpower (be creative; any scale allowed)
-weakness: Core vulnerability
-nemesis: Their heroic enemy
-lair: Where they operate from
-catchphrase: A short quote they often say
-crimes: List of crimes or signature actions
-threat_level: One of [Laughable Low, Moderate, High, Extreme] (based on how dangerous the power is)
-faction: Group or syndicate name
-origin: A single paragraph origin story with 4-5 sentences (about 80-120 words). No dialogue.
+Return JSON with keys ONLY:
+gender, name, alias, weakness, nemesis, lair, catchphrase, faction
 """.strip()
 
     # token estimate for your debug panel
-    set_debug_info(context="Villain Details", prompt=prompt, max_output_tokens=500,
+    set_debug_info(context="Villain Shell (fixed power/crimes)", prompt=prompt, max_output_tokens=300,
                    cost_only=False, is_cache_hit=False)
 
-    # --- Best-of sampling ---
-    candidates = []
-    for _ in range(best_of):
-        resp = _chat_with_retry(
-            messages=[
-                {"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500,
-            temperature=profile["temperature"],
-            attempts=2,
-        )
-        txt = (resp.choices[0].message.content or "").strip()
-        data = _coerce_json(txt) or _fix_json_with_llm(txt)
-        if data:
-            candidates.append(data)
-
-    if not candidates:
-        # guaranteed safe fallback dict (prevents NoneType everywhere)
-        return {
-            "name": "Generator Error",
-            "alias": "Parse Failure",
-            "power": "Unknown",
-            "weakness": "Unknown",
-            "nemesis": "Unknown",
-            "lair": "Unknown",
-            "catchphrase": "The generator failed to return valid JSON.",
-            "crimes": [],
-            "threat_level": "Moderate",
-            "faction": "Unknown",
-            "origin": "The generator failed to parse the villain data.",
-            "gender": "nonbinary",
-            "theme": theme,
-        }
-
-    # pick the best candidate by theme score
-    best = max(candidates, key=lambda d: score_candidate(theme, d))
+    # --- Call LLM to fill the shell fields ---
+    resp = _chat_with_retry(
+        messages=[
+            {"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=300,
+        temperature=profile["temperature"],
+        attempts=2,
+    )
+    txt = (resp.choices[0].message.content or "").strip()
+    data = _coerce_json(txt) or _fix_json_with_llm(txt)
+    if not data:
+        data = {}
 
     # gender
-    gender = (best.get("gender") or "").lower().strip()
+    gender = (data.get("gender") or "").lower().strip()
     if gender not in {"male", "female", "nonbinary"}:
-        gender = infer_gender_from_origin(best.get("origin", "")) or random.choice(["male", "female", "nonbinary"])
+        gender = "nonbinary"
 
     # ensure shuffle-bags exist, then choose name via 70/30 rule
     _ensure_bags()
-    real_name = select_real_name(gender=gender, ai_name_hint=best.get("name", ""))
+    real_name = select_real_name(gender=gender, ai_name_hint=data.get("name", ""))
 
-    # choose power via 70/30 rule (no forced/epic logic anymore)
-    power = select_power(theme, ai_power_hint=best.get("power", "Unknown"))
+    alias = data.get("alias", "Unknown") or "Unknown"
 
-    # compute + adjust threat
+    # ---- Threat from power
     computed = classify_threat_from_power(power)
     threat_level = adjust_threat_for_theme(theme, computed, power)
 
-    # clean origin names to match our chosen real name / alias
-    origin = _normalize_origin_names(best.get("origin", "Unknown"), real_name, best.get("alias", "Unknown"))
+    # ---- Step 3: Origin (power+crimes explicitly tied)
+    origin = generate_origin(theme=theme, power=power, crimes=crimes_fixed, alias=alias, real_name=real_name)
+    origin = _normalize_origin_names(origin, real_name, alias)
 
-    # ensure crimes is a list
-    crimes = best.get("crimes", [])
-    if isinstance(crimes, str):
-        crimes = [crimes] if crimes else []
-    elif crimes is None:
-        crimes = []
-
+    # ---- Assemble final result (crimes anchored)
     result = {
         "name": real_name,
-        "alias": best.get("alias", "Unknown"),
+        "alias": alias,
         "power": power,
-        "weakness": best.get("weakness", "Unknown"),
-        "nemesis": best.get("nemesis", "Unknown"),
-        "lair": best.get("lair", "Unknown"),
-        "catchphrase": best.get("catchphrase", "Unknown"),
-        "crimes": crimes,
+        "weakness": data.get("weakness", "Unknown"),
+        "nemesis": data.get("nemesis", "Unknown"),
+        "lair": data.get("lair", "Unknown"),
+        "catchphrase": data.get("catchphrase", "Unknown"),
+        "crimes": crimes_fixed[:],  # fixed set
         "threat_level": threat_level,
-        "faction": best.get("faction", "Unknown"),
+        "faction": data.get("faction", "Unknown"),
         "origin": origin,
         "gender": gender,
         "theme": theme,
+        # light debug metadata for Airtable/logs if you want to store it
+        "power_source": power_source,   # "listed" or "ai"
     }
 
     return result
