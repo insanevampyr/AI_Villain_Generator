@@ -48,6 +48,8 @@ THEME_VISUALS = {
 
 # === Logging ===
 def save_villain_to_log(villain):
+    if not isinstance(villain, dict):
+        return    
     os.makedirs(LOG_FOLDER, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = os.path.join(LOG_FOLDER, f"villain_{timestamp}.txt")

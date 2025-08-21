@@ -589,8 +589,13 @@ if st.button("Generate Villain Details"):
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
-    save_villain_to_log(st.session_state.villain)
     st.rerun()
+
+# Only save if generation succeeded
+if st.session_state.villain:
+    save_villain_to_log(st.session_state.villain)
+else:
+    st.warning("Villain generation returned no data. Please try again.")
 
 # ---------------------------
 # Helpers
