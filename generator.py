@@ -406,31 +406,35 @@ def _align_fields_with_power(theme: str, data: dict, power: str):
         "Keep tone/theme, keep facts coherent, avoid trademarks. "
         "Return VALID JSON with exactly these keys: weakness, nemesis, lair, catchphrase, crimes, origin."
     )
+
+    # IMPORTANT: lists only (no sets) so json.dumps never fails
     rules = {}
     if theme == "epic":
-        rules["forbidden_terms"] = ["time", "temporal", "chrono", "timeline", "rift", "quantum", "plasma", "neural", "device", "gadget", "orbital", "tachyon", "phase"]
-    user_payload = json.dumps({
-        "theme": theme,
-        "fixed_power": power,
-        "rules": rules,
-        "current": { ... }
-    }, ensure_ascii=False)
+        rules["forbidden_terms"] = [
+            "time", "temporal", "chrono", "timeline", "rift",
+            "quantum", "plasma", "neural", "device", "gadget",
+            "orbital", "tachyon", "phase"
+        ]
 
-    user_payload = json.dumps({
+    payload = {
         "theme": theme,
         "fixed_power": power,
+        "rules": rules,  # dict of lists only
         "current": {
-            "weakness": data.get("weakness",""),
-            "nemesis": data.get("nemesis",""),
-            "lair": data.get("lair",""),
-            "catchphrase": data.get("catchphrase",""),
-            "crimes": data.get("crimes",[]),
-            "origin": data.get("origin",""),
+            "weakness": str(data.get("weakness", "")),
+            "nemesis": str(data.get("nemesis", "")),
+            "lair": str(data.get("lair", "")),
+            "catchphrase": str(data.get("catchphrase", "")),
+            "crimes": list(data.get("crimes") or []),
+            "origin": str(data.get("origin", "")),
         }
-    }, ensure_ascii=False)
+    }
+    user_payload = json.dumps(payload, ensure_ascii=False)
+
     try:
         resp = _chat_with_retry(
-            messages=[{"role":"system","content":system},{"role":"user","content":user_payload}],
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user_payload}],
             max_tokens=300, temperature=0.4, attempts=1
         )
         fixed = _coerce_json(resp.choices[0].message.content.strip())
