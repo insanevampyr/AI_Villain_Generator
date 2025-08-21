@@ -82,46 +82,7 @@ POWER_POOLS = {
         "Cartoon Physics — once per scene, ignore normal physics",
     ],
 
-    # ----------------------------------------------------------
-    # EPIC: myth‑cinematic, heroic villainy, world‑scale spectacle.
-    # No time‑tech jargon; keep it legendary.
-    # ----------------------------------------------------------
-    "epic": [
-        "Starfall Lances — call down blazing meteors like thrown spears",
-        "Colossus Step — each stride shakes the earth and shatters ranks",
-        "Banner of Ages — time slows within your standard's shadow",
-        "Eternal Call to Arms — spectral legions rally at your command",
-        "Solar Ascension — rise wreathed in sunfire and crash like dawn",
-        "Worldpillar — plant a radiant pillar that anchors and shields",
-        "Crown of the Infinite — a dominion aura bends fate to your will",
-        "Apocalypse Herald — your voice cracks the sky and sunders walls",
-        "Aegis Nova — unfold a radiant dome that turns calamity aside",
-        "Titan's Grasp — a giant spectral hand lifts towers and titans",
-        "Skybrand — brand foes from the heavens; none can hide",
-        "Valor Surge — allies near you fight like legends from song",
-        "Oathfire — sworn flames grow stronger with each vow kept",
-        "Glory Roar — a fearless battle cry that routs the brave",
-        "Sunblade — a cleaving slash burning with the light of day",
-        "Victory's Shield — sweep aside arrows, bolts, and spells",
-        "Dragonward — a shining barrier that repels monstrous beasts",
-        "Starlit Rally — fallen allies stagger back to their feet",
-        "Infinite Banner — a spectral cohort marches at your heels",
-        "Pillar Forge — raise bulwarks and causeways from the earth",
-        "Sovereign Edict — command a single action none can deny",
-        "Beacon Step — vanish and reappear at your planted sigils",
-        "Evershield — every block heals; every defense inspires",
-        "Mythic Throw — a hurled weapon that always returns empowered",
-        "Anvil Echo — clap once; a thunderwave crushes the line",
-        "Dawn Mantle — darkness peels away wherever you stride",
-        "Legend's Challenge — mark a foe; destiny favors you against them",
-        "Titan Chain — spectral chains that bind giants and engines",
-        "Empyrean Wake — lift allies skyward on radiant currents",
-        "Fate's Clarion — know the enemy's next move like prophecy",
-        "Kingsguard Phalanx — conjure a wall of gleaming guardians",
-        "Grand Overture — an orchestral burst that steels every heart",
-    ],
-
-    # ----------------------------------------------------------
+       # ----------------------------------------------------------
     # SCI‑FI: clean techno‑poetry, energy, physics, devices.
     # ----------------------------------------------------------
     "sci-fi": [
@@ -333,7 +294,6 @@ POWER_POOLS = {
 STYLE_TO_POWER_POOL = {
     "dark": "dark",
     "funny": "funny",
-    "epic": "epic",
     "sci-fi": "sci-fi",
     "mythic": "mythic",
     "chaotic": "chaotic",
