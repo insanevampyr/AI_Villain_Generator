@@ -360,19 +360,119 @@ def _infer_family(power: str) -> Tuple[str, Optional[str]]:
         return "electric", "electric"
     return "tech", None  # neutral default for sci/unknown
 
+def _ai_power_prompt(theme: str, encourage: List[str], ban: List[str]) -> str:
+    # concise system/user prompts; output must be ONE line: "Title — short cinematic description"
+    style_line = f"Theme: {theme}. Encourage: {', '.join(encourage[:8])}. Avoid: {', '.join(ban[:8])}."
+    rules = (
+        "Return ONE power line ONLY in this exact format:\n"
+        "Title — short cinematic description\n\n"
+        "Constraints:\n"
+        "- 5–9 words after the em dash; under 100 chars total.\n"
+        "- Use an em dash (—), not a hyphen.\n"
+        "- No real names, no quotes, no lists, no numbers, no emojis.\n"
+        "- Fit the theme; obey 'Avoid' terms.\n"
+    )
+    return f"{style_line}\n{rules}"
+
+def _valid_power_line(s: str, ban: List[str]) -> bool:
+    if not s: return False
+    if "—" not in s: return False
+    if len(s) > 110: return False
+    low = s.lower()
+    if any(b in low for b in (ban or [])): return False
+    # basic junk filters
+    if any(tok in low for tok in ["unknown", "lorem", "http", "www", "{", "}", "[", "]"]): return False
+    # looks like a single line
+    if "\n" in s.strip(): return False
+    return True
+
+def _generate_ai_power(theme: str) -> Optional[str]:
+    profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
+    prompt = _ai_power_prompt(theme, profile.get("encourage", []), profile.get("ban", []))
+    set_debug_info(context="AI Power (30%)", prompt=prompt, max_output_tokens=60,
+                   cost_only=False, is_cache_hit=False)
+    try:
+        resp = _chat_with_retry(
+            messages=[
+                {"role": "system", "content": "You invent a single superpower line. Output exactly one line; no extra text."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=60,
+            temperature=min(1.0, profile.get("temperature", 0.9) + 0.05),
+            attempts=2,
+        )
+        cand = (resp.choices[0].message.content or "").strip()
+        if _valid_power_line(cand, profile.get("ban", [])):
+            return cand
+        # one gentle retry with a stricter reminder
+        fix = _chat_with_retry(
+            messages=[
+                {"role": "system", "content": "Return ONE valid power line only: Title — short cinematic description."},
+                {"role": "user", "content": prompt + "\nThe previous output failed validation. Obey all constraints."},
+            ],
+            max_tokens=60, temperature=0.7, attempts=1,
+        )
+        cand2 = (fix.choices[0].message.content or "").strip()
+        if _valid_power_line(cand2, profile.get("ban", [])):
+            return cand2
+    except Exception:
+        pass
+    return None
+
+def _cache_ai_power(theme: str, power: str) -> None:
+    key = "ai_power_cache"
+    if key not in st.session_state:
+        st.session_state[key] = {}
+    theme_cache = st.session_state[key].setdefault(theme, [])
+    if power not in theme_cache:
+        theme_cache.append(power)
+        # keep last ~20 to avoid memory bloat
+        if len(theme_cache) > 20:
+            theme_cache.pop(0)
+
+def _is_cached(theme: str, power: str) -> bool:
+    cache = st.session_state.get("ai_power_cache", {})
+    return power in cache.get(theme, [])
+
 def select_power(theme: str, ai_power_hint: Optional[str] = None) -> Tuple[str, str]:
     """
     70/30 rule:
       - 70%: pick from POWER_POOLS by theme (fast, consistent)
-      - 30%: accept AI-provided power from the profile (if any)
+      - 30%: generate a theme-aware AI power, with validation & caching
     Returns (power_text, source) where source ∈ {"listed","ai"}
     """
     key = (theme or "").strip().lower()
     pool = POWER_POOLS.get(key, [])
     use_list = (random.random() < 0.70)
+
+    # 70% listed
     if use_list and pool:
         return random.choice(pool), "listed"
-    return (ai_power_hint or "Unknown").strip(), "ai"
+
+    # 30% AI path
+    # prefer any explicit hint if provided and valid
+    if ai_power_hint and "—" in ai_power_hint and len(ai_power_hint) < 110:
+        cand = ai_power_hint.strip()
+    else:
+        cand = _generate_ai_power(key)
+
+    if cand and cand.strip() and cand.strip().lower() != "unknown":
+        # avoid duplicates in-session
+        if not _is_cached(key, cand):
+            _cache_ai_power(key, cand)
+        return cand.strip(), "ai"
+
+    # hard fallback: listed pool (or any available pool) — never return Unknown
+    if pool:
+        return random.choice(pool), "listed"
+    # last resort: flatten all
+    try:
+        from config import ALL_POWERS
+        if ALL_POWERS:
+            return random.choice(ALL_POWERS), "listed"
+    except Exception:
+        pass
+    return "Shadowstep — slip between nearby patches of darkness", "listed"
 
 def pick_crimes_for_power(power: str) -> List[str]:
     fam, _ = _infer_family(power)
@@ -459,7 +559,7 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
 def generate_villain(tone: str = "dark", force_new: bool = False):
     """
     POWER-FIRST PIPELINE:
-      1) Select power (70% listed / 30% AI hint).
+      1) Select power (70% listed / 30% AI-generated).
       2) Choose crimes that logically align with that power.
       3) Ask LLM for the remaining fields, BUT fix 'power' and constrain 'crimes'.
       4) Generate the origin paragraph in a dedicated pass that ties power+crimes together.
@@ -468,8 +568,8 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
 
     # ---- Step 1: Power first
-    # (We’ll still allow the model to suggest a power 30% of the time via ai_power_hint, but selection happens here.)
-    ai_power_hint = None  # initial run has no hint; kept for API parity
+    # 30% will now generate a fresh, theme-aware power (never 'Unknown')
+    ai_power_hint = None
     power, power_source = select_power(theme, ai_power_hint=ai_power_hint)
 
     # ---- Step 2: Crimes for that power
