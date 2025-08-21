@@ -144,22 +144,6 @@ THEME_PROFILES: Dict[str, dict] = {
         ],
         "tone": "ominous, predatory, heavy cadence"
     },
-    "epic": {
-        "temperature": 0.92,
-        "encourage": ["celestial", "cataclysm", "apotheosis", "epoch", "titanic", "reality tear", "starfire"],
-        "ban": [
-            "time", "temporal", "chron", "chrono", "rift", "timeline",
-            "quantum", "nanotech", "neural", "lattice", "plasma",
-            "phase", "tachyon", "orbital", "cyber", "tech", "device"
-        ],
-        "threat_dist": {"Laughable Low": 0.00, "Moderate": 0.00, "High": 0.10, "Extreme": 0.90},
-        "variety_prompts": [
-            "Think god-tier spectacle and myth-cinematic stakes.",
-            "Use grand, majestic language sparingly but effectively.",
-            "Crimes affect continents or the sky and sea."
-        ],
-        "tone": "operatic, majestic, large scale"
-    },
     "mythic": {
         "temperature": 0.85,
         "encourage": ["oath", "wyrd", "totem", "beast-command", "fate", "stormcalling", "relic", "underworld"],
@@ -266,8 +250,6 @@ def adjust_threat_for_theme(theme: str, computed: str, power_text: str) -> str:
     comp_i = LEVEL_INDEX.get(computed, 1)
     targ_i = LEVEL_INDEX.get(target, 1)
 
-    if theme == "epic":
-        return "Extreme" if max(comp_i, targ_i) >= 3 or random.random() < 0.6 else "High"
     if theme in ("funny", "satirical"):
         if LEVEL_INDEX.get(computed, 1) >= 3 and random.random() < (0.10 if theme == "funny" else 0.15):
             return "Extreme"
@@ -409,13 +391,6 @@ def _align_fields_with_power(theme: str, data: dict, power: str):
 
     # IMPORTANT: lists only (no sets) so json.dumps never fails
     rules = {}
-    if theme == "epic":
-        rules["forbidden_terms"] = [
-            "time", "temporal", "chrono", "timeline", "rift",
-            "quantum", "plasma", "neural", "device", "gadget",
-            "orbital", "tachyon", "phase"
-        ]
-
     payload = {
         "theme": theme,
         "fixed_power": power,
@@ -496,15 +471,6 @@ def generate_villain(tone="dark", force_new: bool = False):
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
     best_of = 1
 
-    # Decide power FIRST so the model writes everything around it (prevents mismatches)
-    forced_power = None
-    try:
-        pool = POWER_POOLS.get(theme, [])
-        bias = 1.0 if theme == "epic" else 0.70  # higher stickiness for Epic
-        if pool and random.random() < bias:
-            forced_power = random.choice(pool)
-    except Exception:
-        forced_power = None
 
     preface_lines: List[str] = [
         f"Theme: {theme}",
@@ -515,15 +481,8 @@ def generate_villain(tone="dark", force_new: bool = False):
         preface_lines.append(f"Avoid terms like: {', '.join(profile['ban'][:8])}.")
     if theme in ("funny", "satirical"):
         preface_lines.append("Technology is rare; mild gadgets allowed only occasionally.")
-    if theme == "epic":
-        preface_lines.append("Always grand in scope; avoid petty crimes.")
-        preface_lines.append("Do NOT use time/temporal/chron/quantum/tech vocabulary for EPIC. No rifts, timelines, gadgets, or sci‑fi jargon.")
     if theme == "chaotic":
         preface_lines.append("Inject one unpredictable chaos quirk in the origin.")
-    if forced_power:
-        preface_lines.append(
-            f"Fixed power: {forced_power}. Use exactly this as the 'power' and make weakness, crimes, lair, nemesis, catchphrase, and origin tightly consistent with it."
-        )
 
     variety_prompt = random.choice(profile["variety_prompts"])
     lines_block = "\n".join(preface_lines)  # <-- precompute to avoid backslash in f-string
@@ -628,13 +587,3 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
         "gender": gender,
         "theme": theme,
     }
-
-    # --- Consistency polish for fixed power (mainly helps EPIC drift) ---
-    if forced_power:
-        patched = _align_fields_with_power(theme, result, power)
-        if patched:
-            for k in ("weakness","nemesis","lair","catchphrase","crimes","origin"):
-                result[k] = patched.get(k, result[k])
-
-
-    return result
