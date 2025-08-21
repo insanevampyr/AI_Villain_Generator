@@ -147,7 +147,11 @@ THEME_PROFILES: Dict[str, dict] = {
     "epic": {
         "temperature": 0.92,
         "encourage": ["celestial", "cataclysm", "apotheosis", "epoch", "titanic", "reality tear", "starfire"],
-        "ban": ["prank", "petty", "minor heist"],
+        "ban": [
+            "time", "temporal", "chron", "chrono", "rift", "timeline",
+            "quantum", "nanotech", "neural", "lattice", "plasma",
+            "phase", "tachyon", "orbital", "cyber", "tech", "device"
+        ],
         "threat_dist": {"Laughable Low": 0.00, "Moderate": 0.00, "High": 0.10, "Extreme": 0.90},
         "variety_prompts": [
             "Think god-tier spectacle and myth-cinematic stakes.",
@@ -402,6 +406,16 @@ def _align_fields_with_power(theme: str, data: dict, power: str):
         "Keep tone/theme, keep facts coherent, avoid trademarks. "
         "Return VALID JSON with exactly these keys: weakness, nemesis, lair, catchphrase, crimes, origin."
     )
+    rules = {}
+    if theme == "epic":
+        rules["forbidden_terms"] = ["time", "temporal", "chrono", "timeline", "rift", "quantum", "plasma", "neural", "device", "gadget", "orbital", "tachyon", "phase"]
+    user_payload = json.dumps({
+        "theme": theme,
+        "fixed_power": power,
+        "rules": rules,
+        "current": { ... }
+    }, ensure_ascii=False)
+
     user_payload = json.dumps({
         "theme": theme,
         "fixed_power": power,
@@ -482,7 +496,7 @@ def generate_villain(tone="dark", force_new: bool = False):
     forced_power = None
     try:
         pool = POWER_POOLS.get(theme, [])
-        bias = 0.95 if theme == "epic" else 0.70  # higher stickiness for Epic
+        bias = 1.0 if theme == "epic" else 0.70  # higher stickiness for Epic
         if pool and random.random() < bias:
             forced_power = random.choice(pool)
     except Exception:
@@ -499,6 +513,7 @@ def generate_villain(tone="dark", force_new: bool = False):
         preface_lines.append("Technology is rare; mild gadgets allowed only occasionally.")
     if theme == "epic":
         preface_lines.append("Always grand in scope; avoid petty crimes.")
+        preface_lines.append("Do NOT use time/temporal/chron/quantum/tech vocabulary for EPIC. No rifts, timelines, gadgets, or sci‑fi jargon.")
     if theme == "chaotic":
         preface_lines.append("Inject one unpredictable chaos quirk in the origin.")
     if forced_power:
@@ -612,11 +627,10 @@ origin: A single paragraph origin story with 4-5 sentences (about 80-120 words).
 
     # --- Consistency polish for fixed power (mainly helps EPIC drift) ---
     if forced_power:
-        kws = _power_keywords(power)
-        if _consistency_hits(result, kws) < 2:
-            patched = _align_fields_with_power(theme, result, power)
-            if patched:
-                for k in ("weakness","nemesis","lair","catchphrase","crimes","origin"):
-                    result[k] = patched.get(k, result[k])
+        patched = _align_fields_with_power(theme, result, power)
+        if patched:
+            for k in ("weakness","nemesis","lair","catchphrase","crimes","origin"):
+                result[k] = patched.get(k, result[k])
+
 
     return result
