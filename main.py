@@ -566,7 +566,7 @@ if free_used and credits <= 0 and not is_dev:
 # Theme / style
 # ---------------------------
 style = st.selectbox("Choose a style", [
-    "dark", "funny", "epic", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
+    "dark", "funny", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
 ])
 theme = STYLE_THEMES.get(style, {"accent": "#ff4b4b", "text": "#ffffff"})
 
