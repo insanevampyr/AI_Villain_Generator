@@ -276,6 +276,107 @@ def draw_glow_text(base_img: Image.Image, xy: Tuple[int, int], text: str, font: 
     d2 = ImageDraw.Draw(base_img)
     d2.text(xy, text, font=font, fill=text_color)
 
+# ===================== THREAT METER =====================
+
+# Ordered labels requested
+THREAT_LEVELS = ["Laughably Low", "Moderate", "High", "Extreme"]
+
+# Colors ramp (progressively more wicked): green → yellow → orange → red
+THREAT_COLORS = [
+    (56, 200, 90, 255),    # Laughably Low
+    (255, 208, 0, 255),    # Moderate
+    (255, 140, 0, 255),    # High
+    (255, 64, 64, 255),    # Extreme
+]
+
+# Total vertical space the meter (bar + labels) needs
+THREAT_METER_HEIGHT = 92
+
+def _normalize_threat_name(name: str) -> str:
+    """Map flexible input strings to the 4 canonical levels."""
+    if not name:
+        return "Moderate"
+    s = name.strip().lower()
+    if s.startswith("laugh") or s.startswith("low"):
+        return "Laughably Low"
+    if s.startswith("mod"):
+        return "Moderate"
+    if s.startswith("high"):
+        return "High"
+    if s.startswith("ext") or s.startswith("cat") or s.startswith("apoc"):
+        return "Extreme"
+    for lvl in THREAT_LEVELS:
+        if lvl.lower() == s:
+            return lvl
+    return "Moderate"
+
+def _draw_segment_with_glow(base_img: Image.Image, rect: Tuple[int,int,int,int], color: Tuple[int,int,int,int]):
+    """Rounded rect with soft inner glow and faint texture slashes for upper tiers."""
+    x1, y1, x2, y2 = rect
+    w, h = x2 - x1, y2 - y1
+    layer = Image.new("RGBA", (w, h), (0,0,0,0))
+    d = ImageDraw.Draw(layer)
+
+    # base segment
+    d.rounded_rectangle([(0,0),(w-1,h-1)], radius=8, fill=color)
+
+    # inner glow
+    glow = Image.new("RGBA", (w, h), (255,255,255,0))
+    dglow = ImageDraw.Draw(glow)
+    dglow.rounded_rectangle([(3,3),(w-4,h-4)], radius=6, fill=(255,255,255,40))
+    glow = glow.filter(ImageFilter.GaussianBlur(5))
+    layer = Image.alpha_composite(layer, glow)
+
+    # vertical highlight strip
+    hl = Image.new("RGBA", (w, h), (255,255,255,0))
+    dhl = ImageDraw.Draw(hl)
+    dhl.rectangle([(int(w*0.12), 2), (int(w*0.20), h-3)], fill=(255,255,255,50))
+    hl = hl.filter(ImageFilter.GaussianBlur(6))
+    layer = Image.alpha_composite(layer, hl)
+
+    # “slash” texture for High / Extreme
+    if color == THREAT_COLORS[2] or color == THREAT_COLORS[3]:
+        tx = Image.new("RGBA", (w, h), (0,0,0,0))
+        dtx = ImageDraw.Draw(tx)
+        for k in range(-h, w, 8):
+            dtx.line([(k, h), (k + h, 0)], fill=(255,255,255,35), width=2)
+        tx = tx.filter(ImageFilter.GaussianBlur(1))
+        layer = Image.alpha_composite(layer, tx)
+
+    # paste onto base
+    base_img.paste(layer, (x1, y1), layer)
+
+def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
+    """
+    Draw a 4-section labeled meter. Lights all segments up to current level.
+    """
+    bar_h = 46
+    seg_gap = 8
+    seg_w = (width - seg_gap * 3) // 4
+
+    level = _normalize_threat_name(level_name)
+    try:
+        idx = THREAT_LEVELS.index(level)
+    except ValueError:
+        idx = 1
+
+    # draw segments
+    for i, label in enumerate(THREAT_LEVELS):
+        sx = x + i * (seg_w + seg_gap)
+        rect = (sx, y, sx + seg_w, y + bar_h)
+        # inactive base
+        draw.rounded_rectangle(rect, radius=8, fill=(40,40,40,255))
+        if i <= idx:
+            _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
+
+    # labels under segments
+    label_y = y + bar_h + 8
+    for i, lab in enumerate(THREAT_LEVELS):
+        sx = x + i * (seg_w + seg_gap) + seg_w // 2
+        tw = measure_line_width(font, lab)
+        col = (230,230,230,255) if i <= idx else (160,160,160,255)
+        draw.text((sx - tw // 2, label_y), lab, font=font, fill=col)
+
 # ===================== CARD BUILDER =====================
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
@@ -284,7 +385,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     - Adaptive two-line title (Name / aka)
     - Larger portrait w/ soft white glow
     - Consistent section spacing
-    - Threat Level moved to render last (above Origin)
+    - Threat Level moved to render last (above Origin) with labeled meter
     - Catchphrase glow + red bullets for Crimes
     - Divider + first-line indent for Origin
     """
@@ -328,6 +429,9 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         name_text, aka_text, title_font_base, subtitle_font_base, left_col_width
     )
 
+    # Accent color for catchphrase glow
+    accent_rgba = tuple(int(theme["accent"].lstrip("#")[i:i+2], 16) for i in (0,2,4)) + (140,)
+
     # --- Measure sections (Threat Level LAST) ---
     def measure_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None) -> int:
         h = text_height(section_font) + label_gap
@@ -347,7 +451,8 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     meta_height += measure_section("Catchphrase", catchphrase, italic=True)
     meta_height += measure_section("Crimes", "", bullets=crimes)
     meta_height += measure_section("Faction", faction)
-    meta_height += measure_section("Threat Level", threat_level)  # placed last among meta
+    # Reserve space for the labeled Threat Meter (label + bar + labels + gap)
+    meta_height += text_height(section_font) + label_gap + THREAT_METER_HEIGHT + section_gap
 
     # Title block height
     title_h = 0
@@ -426,7 +531,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         y += text_height(subtitle_font) + title_line_gap
     y += section_gap
 
-    # Sections (Threat Level drawn last)
+    # Sections (Threat Level meter drawn last)
     left_x = margin
     left_y = y
     left_max_w = left_col_width
@@ -466,7 +571,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
             f = italic_font if italic else body_font
             lines, _ = measure_paragraph_height(str(content), f, left_max_w - body_indent_px, line_gap)
             if special_catchphrase:
-                # draw with glow for cinematic emphasis
+                # draw with glow for cinematic emphasis (accent color)
                 y_cursor = left_y
                 for ln in lines:
                     draw_glow_text(
@@ -474,7 +579,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
                         (left_x + body_indent_px, y_cursor),
                         ln,
                         f,
-                        glow_color=(255, 255, 255, 120),
+                        glow_color=accent_rgba,
                         text_color=(230, 230, 230, 255),
                         radius=4
                     )
@@ -487,7 +592,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 
         left_y += section_gap
 
-    # Draw in desired order (Threat Level last):
+    # Draw in desired order (Threat Meter last among meta blocks):
     draw_section("Power", power)
     draw_section("Weakness", weakness)
     draw_section("Nemesis", nemesis)
@@ -495,7 +600,13 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw_section("Catchphrase", catchphrase, italic=True, special_catchphrase=True)
     draw_section("Crimes", "", bullets=crimes)
     draw_section("Faction", faction)
-    draw_section("Threat Level", threat_level)
+
+    # Threat Level (custom labeled meter)
+    draw.text((left_x, left_y), "Threat Level:", font=section_font, fill=theme["text"])
+    left_y += text_height(section_font) + label_gap
+    meter_w = min(left_max_w, 780)
+    draw_threat_meter(image, draw, left_x + body_indent_px, left_y, meter_w, threat_level, body_font)
+    left_y += THREAT_METER_HEIGHT + section_gap + 4  # extra breathing room
 
     # Divider + Origin
     y_origin = max(left_y, (margin + portrait_size[1]) + margin)
