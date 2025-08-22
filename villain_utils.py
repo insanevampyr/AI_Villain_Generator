@@ -29,14 +29,14 @@ DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.pn
 FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
 LOG_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 
-# Strong portrait guidance to avoid icon/sticker/logo outcomes.
+# Portrait quality guidance
 QUALITY_HINT = (
     "Cinematic bust portrait, 3/4 view, photorealistic skin texture, dramatic lighting, depth of field, "
     "rich background bokeh, intricate detail, volumetric light, high dynamic range. "
     "NOT an icon, NOT a logo, NOT a sticker, NOT flat vector art, no text or signage."
 )
 
-# Theme → visual style boosters for DALL·E
+# Theme → visual style boosters
 THEME_VISUALS = {
     "funny": "bright, comedic composition, exaggerated expressions, whimsical props, saturated but balanced colors",
     "satirical": "playful yet sharp composition, clever visual irony, poster-like framing without text",
@@ -132,7 +132,6 @@ def load_fonts():
     }
     paths = {k: _resolve_font_path(v) for k, v in names.items()}
 
-    # Base sizes (will adapt for title/subtitle)
     SIZE_TITLE_BASE    = 72
     SIZE_SUBTITLE_BASE = 52
     SIZE_SECTION       = 44
@@ -164,7 +163,7 @@ def load_fonts():
 
     return title_font_base, subtitle_font_base, section_font, body_font, italic_font
 
-# ===================== TEXT MEASUREMENT HELPERS =====================
+# ===================== TEXT HELPERS =====================
 
 def text_height(font: ImageFont.FreeTypeFont, sample: str = "Ay") -> int:
     bbox = font.getbbox(sample)
@@ -202,6 +201,10 @@ def measure_paragraph_height(text: str, font: ImageFont.FreeTypeFont, max_width:
     return lines, total
 
 def measure_bullets_height(items: List[str], font: ImageFont.FreeTypeFont, max_width: int, line_gap: int, bullet_indent: int) -> Tuple[List[str], int]:
+    """
+    Returns render lines with '• ' prefix only for the first line of each bullet.
+    Continuation lines are prefixed with spaces (no bullet).
+    """
     render_lines = []
     total = 0
     bullet = "• "
@@ -210,32 +213,27 @@ def measure_bullets_height(items: List[str], font: ImageFont.FreeTypeFont, max_w
         rest_prefix  = " " * bullet_indent
         first_w = measure_line_width(font, first_prefix)
         raw_lines = wrap_text_pixels(str(item), font, max_width - first_w) or [""]
+        # First line with bullet prefix
         render_lines.append(first_prefix + raw_lines[0])
         total += text_height(font) + line_gap
+        # Continuation lines (indented, no bullet)
         for ln in raw_lines[1:]:
             render_lines.append(rest_prefix + ln)
             total += text_height(font) + line_gap
     return render_lines, total
 
-# ===================== ADAPTIVE TITLE (1 & 2) =====================
+# ========== ADAPTIVE TITLE (two-line + scaling) ==========
 
 def _adaptive_title_fonts(name_txt: str, aka_txt: str, title_font_base: ImageFont.FreeTypeFont,
                           subtitle_font_base: ImageFont.FreeTypeFont, max_width: int,
                           max_name_lines: int = 2, max_aka_lines: int = 2,
                           min_title: int = 44, min_subtitle: int = 34):
-    """
-    Downscales title/subtitle fonts in 4pt steps until both fit within line limits and width.
-    """
-    # Detect font file path to recreate at new sizes
     def _infer_path(font_obj):
-        # PIL stores path on FreeTypeFont as .path in newer Pillow; fallback to DejaVu
         return getattr(font_obj, "path", _resolve_font_path("DejaVuSans-Bold.ttf"))
 
     title_path    = _infer_path(title_font_base)
     subtitle_path = _infer_path(subtitle_font_base)
 
-    # Get current sizes (approx) by measuring "Ay" height and back-solving is unreliable; we step from bases.
-    # Start sizes
     size_title    = 72
     size_subtitle = 52
 
@@ -252,45 +250,58 @@ def _adaptive_title_fonts(name_txt: str, aka_txt: str, title_font_base: ImageFon
         name_lines = wrap_text_pixels(name_txt, title_font, max_width)
         aka_lines  = wrap_text_pixels(aka_txt,  subtitle_font, max_width)
 
-        too_wide_or_long = (
-            len(name_lines) > max_name_lines or
-            len(aka_lines)  > max_aka_lines
-        )
+        too_long = len(name_lines) > max_name_lines or len(aka_lines) > max_aka_lines
 
-        # If still too long/wide and we can shrink more, step down
-        if too_wide_or_long and (size_title > min_title or size_subtitle > min_subtitle):
+        if too_long and (size_title > min_title or size_subtitle > min_subtitle):
             if size_title > min_title:
                 size_title -= 4
             if size_subtitle > min_subtitle:
                 size_subtitle -= 4
             continue
 
-        # Fits or hit minimums → return
         return title_font, subtitle_font, name_lines, aka_lines
+
+# ===================== SPECIAL DRAW HELPERS =====================
+
+def draw_glow_text(base_img: Image.Image, xy: Tuple[int, int], text: str, font: ImageFont.FreeTypeFont,
+                   glow_color=(255, 255, 255, 160), text_color=(255, 255, 255, 255), radius=6):
+    """
+    Draw text with a subtle soft glow (on its own layer, blurred, then the sharp text on top).
+    """
+    layer = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    d.text(xy, text, font=font, fill=glow_color)
+    layer = layer.filter(ImageFilter.GaussianBlur(radius))
+    base_img.alpha_composite(layer)
+    d2 = ImageDraw.Draw(base_img)
+    d2.text(xy, text, font=font, fill=text_color)
 
 # ===================== CARD BUILDER =====================
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     """
-    Dynamic-height villain card:
-    1) Adaptive title scaling, two-line layout
-    2) Larger portrait with soft white outer glow
-    3) Consistent section spacing
-    4) Divider + first-line indent for Origin
+    Core polished card with:
+    - Adaptive two-line title (Name / aka)
+    - Larger portrait w/ soft white glow
+    - Consistent section spacing
+    - Threat Level moved to render last (above Origin)
+    - Catchphrase glow + red bullets for Crimes
+    - Divider + first-line indent for Origin
     """
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
+    bullet_color = (255, 75, 75, 255)  # blood-red bullets
 
-    # Layout & rhythm
+    # Layout
     card_width      = 1200
     margin          = 40
-    portrait_size   = (400, 400)     # (3) Larger portrait
-    section_gap     = 22             # (4) consistent rhythm
+    portrait_size   = (400, 400)
+    section_gap     = 22
     label_gap       = 8
     line_gap        = 8
     title_line_gap  = 6
     bullet_indent   = 3
     body_indent_px  = 10
-    left_col_width  = card_width - (margin * 3) - portrait_size[0]  # space left of portrait
+    left_col_width  = card_width - (margin * 3) - portrait_size[0]
 
     # Fonts
     title_font_base, subtitle_font_base, section_font, body_font, italic_font = load_fonts()
@@ -312,12 +323,12 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     alias_text = str(villain.get('alias', 'Unknown') or 'Unknown').strip()
     aka_text = f"aka {alias_text}"
 
-    # (1) Adaptive title fonts + wrapped two-line layout (2)
+    # Adaptive title
     title_font, subtitle_font, name_lines, aka_lines = _adaptive_title_fonts(
         name_text, aka_text, title_font_base, subtitle_font_base, left_col_width
     )
 
-    # --- Measure sections ---
+    # --- Measure sections (Threat Level LAST) ---
     def measure_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None) -> int:
         h = text_height(section_font) + label_gap
         if bullets is not None:
@@ -335,8 +346,8 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     meta_height += measure_section("Lair", lair)
     meta_height += measure_section("Catchphrase", catchphrase, italic=True)
     meta_height += measure_section("Crimes", "", bullets=crimes)
-    meta_height += measure_section("Threat Level", threat_level)
     meta_height += measure_section("Faction", faction)
+    meta_height += measure_section("Threat Level", threat_level)  # placed last among meta
 
     # Title block height
     title_h = 0
@@ -351,7 +362,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     left_column_bottom = margin + title_h + section_gap + meta_height
     origin_start_y = max(left_column_bottom, portrait_bottom + margin)
 
-    # Origin block measure
+    # Origin measurement
     origin_label_h = text_height(section_font) + label_gap
     origin_wrap_w = card_width - (margin * 2) - body_indent_px
     origin_lines, origin_block_h = measure_paragraph_height(origin_text, body_font, origin_wrap_w, line_gap)
@@ -363,7 +374,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(image)
 
-    # Portrait helpers (3: outer white glow)
+    # Portrait with soft white outer glow
     def load_portrait(img_src):
         try:
             if img_src and hasattr(img_src, "read"):
@@ -383,19 +394,16 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         mask = Image.new("L", portrait_size, 0)
         ImageDraw.Draw(mask).ellipse((0, 0) + portrait_size, fill=255)
 
-        # White outer glow
         glow_size = (portrait_size[0] + 48, portrait_size[1] + 48)
         glow = Image.new("RGBA", glow_size, (255, 255, 255, 0))
         glow_mask = Image.new("L", glow_size, 0)
-        ImageDraw.Draw(glow_mask).ellipse((0, 0) + glow_size, fill=180)  # alpha
+        ImageDraw.Draw(glow_mask).ellipse((0, 0) + glow_size, fill=180)
         glow_blur = glow_mask.filter(ImageFilter.GaussianBlur(18))
         glow_img = Image.new("RGBA", glow_size, (255, 255, 255, 80))
         glow = Image.composite(glow_img, glow, glow_blur)
 
-        # Composite glow + portrait
         out = Image.new("RGBA", glow_size, (0, 0, 0, 0))
         out.paste(glow, (0, 0), glow)
-        # center portrait on glow
         offset = ((glow_size[0] - portrait_size[0]) // 2, (glow_size[1] - portrait_size[1]) // 2)
         circ = Image.new("RGBA", portrait_size, (0, 0, 0, 0))
         circ.paste(img, (0, 0), mask)
@@ -407,7 +415,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         final_portrait = circular_with_glow(portrait)
         image.paste(final_portrait, (card_width - final_portrait.size[0] - margin, margin), final_portrait)
 
-    # Title (two lines, wrapped to left_col_width)
+    # Title
     x = margin
     y = margin
     for ln in name_lines:
@@ -418,49 +426,85 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         y += text_height(subtitle_font) + title_line_gap
     y += section_gap
 
-    # Left column sections (4: consistent spacing already applied via constants)
+    # Sections (Threat Level drawn last)
     left_x = margin
     left_y = y
     left_max_w = left_col_width
 
-    def draw_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None):
+    def draw_bulleted_lines(lines: List[str]):
+        """
+        Draws bullet lines where the first line of each item starts with '• '.
+        The bullet dot is drawn as a small red circle; continuation lines align without bullets.
+        """
+        nonlocal left_y
+        for ln in lines:
+            if ln.startswith("• "):
+                # positions
+                dot_radius = 5
+                dot_x = left_x + body_indent_px
+                dot_y = left_y + text_height(body_font) // 2
+                # draw dot
+                draw.ellipse((dot_x - dot_radius, dot_y - dot_radius, dot_x + dot_radius, dot_y + dot_radius), fill=bullet_color)
+                # draw text (after some spacing)
+                text_x = dot_x + dot_radius * 2 + 10
+                draw.text((text_x, left_y), ln[2:], font=body_font, fill=theme["text"])
+            else:
+                # continuation line: align with text_x used above
+                cont_x = left_x + body_indent_px + (5 * 2) + 10
+                draw.text((cont_x, left_y), ln, font=body_font, fill=theme["text"])
+            left_y += text_height(body_font) + line_gap
+
+    def draw_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None, special_catchphrase=False):
         nonlocal left_y
         draw.text((left_x, left_y), f"{label}:", font=section_font, fill=theme["text"])
         left_y += text_height(section_font) + label_gap
 
         if bullets is not None:
             lines, _ = measure_bullets_height(bullets, body_font, left_max_w - body_indent_px, line_gap, bullet_indent)
-            for ln in lines:
-                draw.text((left_x + body_indent_px, left_y), ln, font=body_font, fill=theme["text"])
-                left_y += text_height(body_font) + line_gap
+            draw_bulleted_lines(lines)
         else:
             f = italic_font if italic else body_font
             lines, _ = measure_paragraph_height(str(content), f, left_max_w - body_indent_px, line_gap)
-            for ln in lines:
-                draw.text((left_x + body_indent_px, left_y), ln, font=f, fill=theme["text"])
-                left_y += text_height(f) + line_gap
+            if special_catchphrase:
+                # draw with glow for cinematic emphasis
+                y_cursor = left_y
+                for ln in lines:
+                    draw_glow_text(
+                        image,
+                        (left_x + body_indent_px, y_cursor),
+                        ln,
+                        f,
+                        glow_color=(255, 255, 255, 120),
+                        text_color=(230, 230, 230, 255),
+                        radius=4
+                    )
+                    y_cursor += text_height(f) + line_gap
+                left_y = y_cursor
+            else:
+                for ln in lines:
+                    draw.text((left_x + body_indent_px, left_y), ln, font=f, fill=theme["text"])
+                    left_y += text_height(f) + line_gap
 
         left_y += section_gap
 
+    # Draw in desired order (Threat Level last):
     draw_section("Power", power)
     draw_section("Weakness", weakness)
     draw_section("Nemesis", nemesis)
     draw_section("Lair", lair)
-    draw_section("Catchphrase", catchphrase, italic=True)
+    draw_section("Catchphrase", catchphrase, italic=True, special_catchphrase=True)
     draw_section("Crimes", "", bullets=crimes)
-    draw_section("Threat Level", threat_level)
     draw_section("Faction", faction)
+    draw_section("Threat Level", threat_level)
 
-    # (5) Divider before Origin + first-line indent behavior
+    # Divider + Origin
     y_origin = max(left_y, (margin + portrait_size[1]) + margin)
-    # Divider line
     divider_y = y_origin - int(section_gap * 0.5)
     draw.line([(margin, divider_y), (card_width - margin, divider_y)], fill=(255, 255, 255, 60), width=2)
 
     draw.text((margin, y_origin), "Origin:", font=section_font, fill=theme["text"])
     y_origin += text_height(section_font) + label_gap
 
-    # First-line indent: indent only the very first origin line a bit more
     origin_lines, _ = measure_paragraph_height(origin_text, body_font, origin_wrap_w, line_gap)
     first_line_extra_indent = 12
     is_first = True
