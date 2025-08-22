@@ -293,7 +293,8 @@ THREAT_COLORS = [
     (56, 200, 90, 255),     # Low
     (255, 208, 0, 255),     # Moderate
     (255, 140, 0, 255),     # High
-    (178, 0, 0, 255),       # Extreme (darker crimson)
+    (220, 20, 60, 255),     # Extreme (crimson blood red)
+
 ]
 
 THREAT_METER_HEIGHT = 100  # bar + labels
@@ -394,26 +395,6 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
         draw.rounded_rectangle(rect, radius=8, fill=(40, 40, 40, 255))
         if i <= idx:
             _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
-
-    # skulls inside bar
-    cy       = y + bar_h // 2
-    skull_px = max(16, int(bar_h * 0.55))
-
-    if idx >= 2:
-        sx = x + 2 * (seg_w + seg_gap)
-        cx = sx + seg_w // 2
-        if not _paste_skull_icon(img, cx, cy, skull_px):
-            _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
-
-    if idx >= 3:
-        sx = x + 3 * (seg_w + seg_gap)
-        centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4) // 5]
-        for c in centers:
-            glow = Image.new("RGBA", (skull_px+6, skull_px+6), (200, 0, 0, 110))
-            glow = glow.filter(ImageFilter.GaussianBlur(6))
-            img.paste(glow, (c - glow.size[0]//2, cy - glow.size[1]//2), glow)
-            if not _paste_skull_icon(img, c, cy, skull_px):
-                _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
 
     # labels under segments (auto-fit)
     label_y   = y + bar_h + 8
