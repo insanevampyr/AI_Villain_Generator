@@ -29,13 +29,16 @@ DEFAULT_IMAGE   = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.
 FONT_PATH       = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
 LOG_FOLDER      = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 DOSSIER_TEXTURE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/dossier_paper.png"
-QR_STAMP        = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"
-HASHTAG_TEXT    = "#AIVillains"
+# Footer / branding
+QR_STAMP      = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"
+HASHTAG_TEXT  = "#AIVillains"
+FOOTER_BAND_H = 96    # reserved footer height so text never overlaps
+QR_SIZE       = 88    # px
+FOOTER_PAD    = 24
 
-# Footer band (so QR and hashtag never overlap Origin)
-FOOTER_BAND_H   = 96
-QR_SIZE         = 88  # px
-FOOTER_PAD      = 24  # px
+# Threat meter skull icon
+SKULL_ICON    = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/skull_icon.png"
+SKULL_SIZE    = 22   # auto-scaled again in code by bar height
 
 # Portrait quality guidance
 QUALITY_HINT = (
@@ -393,6 +396,23 @@ def _abbrev_label(lab: str) -> str:
     }
     return mapping.get(lab, lab)
 
+def _paste_skull_icon(img: Image.Image, cx: int, cy: int, size: int) -> bool:
+    """
+    Paste the skull PNG centered at (cx,cy). Returns True if pasted.
+    """
+    if not os.path.exists(SKULL_ICON):
+        return False
+    try:
+        icon = Image.open(SKULL_ICON).convert("RGBA")
+        icon = icon.resize((size, size), Image.LANCZOS)
+        x = cx - size // 2
+        y = cy - size // 2
+        img.paste(icon, (x, y), icon)
+        return True
+    except Exception:
+        return False
+
+
 def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
     """
     Draw a 4-section labeled meter. Lights all segments up to current level.
@@ -417,28 +437,29 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
         if i <= idx:
             _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
 
-    # --- draw skulls INSIDE the bar for High/Extreme ---
+    # --- skull icons INSIDE the bar for High/Extreme (uses PNG asset) ---
     cy = y + bar_h // 2
-    # High → 1 skull centered
+    skull_px = max(16, int(bar_h * 0.55))  # scale nicely with bar height
+
+    # High → 1 skull centered in the High segment
     if idx >= 2:
         sx = x + 2 * (seg_w + seg_gap)
         cx = sx + seg_w // 2
-        _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
-    # Extreme → 3 skulls evenly spaced + faint red glow behind
+        if not _paste_skull_icon(img, cx, cy, skull_px):
+            # fallback: tiny vector skull if asset missing
+                _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
+
+    # Extreme → 3 skulls evenly spaced (with a faint red glow behind each)
     if idx >= 3:
         sx = x + 3 * (seg_w + seg_gap)
-        centers = [
-            sx + seg_w // 5,
-            sx + seg_w // 2,
-            sx + (seg_w * 4) // 5,
-        ]
-        glow_patch = Image.new("RGBA", (26,26), (200,0,0,110))
-        glow_patch = glow_patch.filter(ImageFilter.GaussianBlur(6))
+        centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4) // 5]
         for c in centers:
-            gx = c - glow_patch.size[0]//2
-            gy = cy - glow_patch.size[1]//2
-            img.paste(glow_patch, (gx, gy), glow_patch)
-            _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
+            glow = Image.new("RGBA", (skull_px+6, skull_px+6), (200, 0, 0, 110))
+            glow = glow.filter(ImageFilter.GaussianBlur(6))
+            img.paste(glow, (c - glow.size[0]//2, cy - glow.size[1]//2), glow)
+            if not _paste_skull_icon(img, c, cy, skull_px):
+                _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
+
 
     # labels under segments (auto-shrink/abbrev if needed)
     label_y = y + bar_h + 8
