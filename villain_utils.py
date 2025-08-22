@@ -290,7 +290,7 @@ THREAT_COLORS = [
 ]
 
 # Total vertical space the meter (bar + labels) needs
-THREAT_METER_HEIGHT = 92
+THREAT_METER_HEIGHT = 100  # a touch taller to fit skulls/labels comfortably
 
 def _normalize_threat_name(name: str) -> str:
     """Map flexible input strings to the 4 canonical levels."""
@@ -346,9 +346,56 @@ def _draw_segment_with_glow(base_img: Image.Image, rect: Tuple[int,int,int,int],
     # paste onto base
     base_img.paste(layer, (x1, y1), layer)
 
+def _draw_tiny_skull(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 10,
+                     color=(255,255,255,255), glow_img: Optional[Image.Image] = None):
+    """
+    Simple vector skull (head + eye sockets + jaw). Looks crisp at small sizes.
+    If glow_img provided, a soft glow is composited behind the skull.
+    """
+    r = scale
+    # glow
+    if glow_img is not None:
+        gx = glow_img.copy()
+        draw_im = Image.new("RGBA", gx.size, (0,0,0,0))
+        # place glow centered
+        x = cx - gx.size[0]//2
+        y = cy - gx.size[1]//2
+        draw_im.paste(gx, (x, y), gx)
+        draw_im_blur = draw_im.filter(ImageFilter.GaussianBlur(4))
+        # we can't alpha_composite with draw; return caller to paste directly
+        return draw_im_blur
+
+    # skull head
+    left = cx - r
+    top  = cy - int(r*1.1)
+    right= cx + r
+    bot  = cy + r
+    draw.ellipse([left, top, right, bot], fill=color)
+    # eye sockets
+    eye_r = max(2, r//3)
+    ex1 = cx - r//2
+    ex2 = cx + r//2
+    ey  = cy - r//4
+    draw.ellipse([ex1-eye_r, ey-eye_r, ex1+eye_r, ey+eye_r], fill=(0,0,0,255))
+    draw.ellipse([ex2-eye_r, ey-eye_r, ex2+eye_r, ey+eye_r], fill=(0,0,0,255))
+    # jaw (rectangle)
+    jaw_h = max(2, r//2)
+    draw.rectangle([cx - r//2, cy + r//2, cx + r//2, cy + r//2 + jaw_h], fill=color)
+    return None
+
+def _abbrev_label(lab: str) -> str:
+    mapping = {
+        "Laughably Low": "Low",
+        "Moderate": "Moderate",
+        "High": "High",
+        "Extreme": "Extreme",
+    }
+    return mapping.get(lab, lab)
+
 def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
     """
     Draw a 4-section labeled meter. Lights all segments up to current level.
+    Skulls are drawn INSIDE the bar: 1 for High, 3 for Extreme.
     """
     bar_h = 46
     seg_gap = 8
@@ -369,13 +416,60 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
         if i <= idx:
             _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
 
-    # labels under segments
+    # --- draw skulls INSIDE the bar for High/Extreme ---
+    cy = y + bar_h // 2
+    # High → 1 skull centered
+    if idx >= 2:
+        sx = x + 2 * (seg_w + seg_gap)
+        cx = sx + seg_w // 2
+        _draw_tiny_skull(draw, cx, cy, scale=9, color=(255,255,255,255))
+    # Extreme → 3 skulls evenly spaced + faint red glow
+    if idx >= 3:
+        sx = x + 3 * (seg_w + seg_gap)
+        centers = [
+            sx + seg_w // 5,
+            sx + seg_w // 2,
+            sx + (seg_w * 4) // 5,
+        ]
+        # make a small red glow patch
+        glow_patch = Image.new("RGBA", (26,26), (255,60,60,90))
+        glow_patch = glow_patch.filter(ImageFilter.GaussianBlur(8))
+        for c in centers:
+            # paste glow
+            gx = c - glow_patch.size[0]//2
+            gy = cy - glow_patch.size[1]//2
+            img.paste(glow_patch, (gx, gy), glow_patch)
+            _draw_tiny_skull(draw, c, cy, scale=9, color=(255,255,255,255))
+
+    # labels under segments (auto-shrink/abbrev if needed)
     label_y = y + bar_h + 8
+    # make a slightly smaller label font if the text won't fit segment width
+    base_size =  int(getattr(font, "size", 32))
+    path_body =  getattr(font, "path", _resolve_font_path("DejaVuSans.ttf"))
     for i, lab in enumerate(THREAT_LEVELS):
-        sx = x + i * (seg_w + seg_gap) + seg_w // 2
+        text_to_use = lab
         tw = measure_line_width(font, lab)
+        if tw > seg_w - 10:
+            # try abbreviation
+            text_to_use = _abbrev_label(lab)
+            tw = measure_line_width(font, text_to_use)
+        # if still too wide, shrink font a bit
+        used_font = font
+        if tw > seg_w - 10 and path_body:
+            size = base_size
+            while size > 20:
+                try:
+                    f2 = ImageFont.truetype(path_body, size)
+                except Exception:
+                    break
+                if measure_line_width(f2, text_to_use) <= seg_w - 10:
+                    used_font = f2
+                    break
+                size -= 2
+        sx = x + i * (seg_w + seg_gap) + seg_w // 2
         col = (230,230,230,255) if i <= idx else (160,160,160,255)
-        draw.text((sx - tw // 2, label_y), lab, font=font, fill=col)
+        tw = measure_line_width(used_font, text_to_use)
+        draw.text((sx - tw // 2, label_y), text_to_use, font=used_font, fill=col)
 
 # ===================== CARD BUILDER =====================
 
@@ -604,7 +698,9 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     # Threat Level (custom labeled meter)
     draw.text((left_x, left_y), "Threat Level:", font=section_font, fill=theme["text"])
     left_y += text_height(section_font) + label_gap
-    meter_w = min(left_max_w, 780)
+    # Stretch to same right edge as Origin (start = margin+indent, width = origin_wrap_w)
+    origin_wrap_w = card_width - (margin * 2) - body_indent_px
+    meter_w = origin_wrap_w
     draw_threat_meter(image, draw, left_x + body_indent_px, left_y, meter_w, threat_level, body_font)
     left_y += THREAT_METER_HEIGHT + section_gap + 4  # extra breathing room
 
