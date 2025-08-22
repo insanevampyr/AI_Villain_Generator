@@ -23,13 +23,19 @@ STYLE_THEMES = {
 }
 
 # Output & assets
-CARD_FOLDER   = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
-IMAGE_FOLDER  = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
-DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
-FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
-LOG_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
+CARD_FOLDER     = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
+IMAGE_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
+DEFAULT_IMAGE   = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
+FONT_PATH       = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
+LOG_FOLDER      = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 DOSSIER_TEXTURE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/dossier_paper.png"
+QR_STAMP        = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"
+HASHTAG_TEXT    = "#AIVillains"
 
+# Footer band (so QR and hashtag never overlap Origin)
+FOOTER_BAND_H   = 96
+QR_SIZE         = 88  # px
+FOOTER_PAD      = 24  # px
 
 # Portrait quality guidance
 QUALITY_HINT = (
@@ -283,16 +289,16 @@ def draw_glow_text(base_img: Image.Image, xy: Tuple[int, int], text: str, font: 
 # Ordered labels requested
 THREAT_LEVELS = ["Laughably Low", "Moderate", "High", "Extreme"]
 
-# Colors ramp (progressively more wicked): green → yellow → orange → red
+# Colors ramp (progressively more wicked): green → yellow → orange → deep red
 THREAT_COLORS = [
     (56, 200, 90, 255),    # Laughably Low
     (255, 208, 0, 255),    # Moderate
     (255, 140, 0, 255),    # High
-    (178, 0, 0, 255)       # Extreme
+    (178, 0, 0, 255)       # Extreme (darker crimson)
 ]
 
 # Total vertical space the meter (bar + labels) needs
-THREAT_METER_HEIGHT = 100  # a touch taller to fit skulls/labels comfortably
+THREAT_METER_HEIGHT = 100  # room for labels/skulls
 
 def _normalize_threat_name(name: str) -> str:
     """Map flexible input strings to the 4 canonical levels."""
@@ -348,24 +354,18 @@ def _draw_segment_with_glow(base_img: Image.Image, rect: Tuple[int,int,int,int],
     # paste onto base
     base_img.paste(layer, (x1, y1), layer)
 
-def _draw_tiny_skull(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 10,
-                     color=(255,255,255,255), glow_img: Optional[Image.Image] = None):
+def _draw_tiny_skull_with_crossbones(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 10,
+                                     color=(255,255,255,255)):
     """
-    Simple vector skull (head + eye sockets + jaw). Looks crisp at small sizes.
-    If glow_img provided, a soft glow is composited behind the skull.
+    Vector ☠ (skull + crossbones) so it renders everywhere.
     """
     r = scale
-    # glow
-    if glow_img is not None:
-        gx = glow_img.copy()
-        draw_im = Image.new("RGBA", gx.size, (0,0,0,0))
-        # place glow centered
-        x = cx - gx.size[0]//2
-        y = cy - gx.size[1]//2
-        draw_im.paste(gx, (x, y), gx)
-        draw_im_blur = draw_im.filter(ImageFilter.GaussianBlur(4))
-        # we can't alpha_composite with draw; return caller to paste directly
-        return draw_im_blur
+    # crossbones (two diagonals)
+    bone_w = max(2, r // 3)
+    bone_len = r * 2 + 6
+    # draw diagonal bones as thick lines
+    draw.line([(cx - bone_len//2, cy + r//2), (cx + bone_len//2, cy - r//2)], fill=color, width=bone_w)
+    draw.line([(cx - bone_len//2, cy - r//2), (cx + bone_len//2, cy + r//2)], fill=color, width=bone_w)
 
     # skull head
     left = cx - r
@@ -383,7 +383,6 @@ def _draw_tiny_skull(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 1
     # jaw (rectangle)
     jaw_h = max(2, r//2)
     draw.rectangle([cx - r//2, cy + r//2, cx + r//2, cy + r//2 + jaw_h], fill=color)
-    return None
 
 def _abbrev_label(lab: str) -> str:
     mapping = {
@@ -424,8 +423,8 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
     if idx >= 2:
         sx = x + 2 * (seg_w + seg_gap)
         cx = sx + seg_w // 2
-        _draw_tiny_skull(draw, cx, cy, scale=9, color=(255,255,255,255))
-    # Extreme → 3 skulls evenly spaced + faint red glow
+        _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
+    # Extreme → 3 skulls evenly spaced + faint red glow behind
     if idx >= 3:
         sx = x + 3 * (seg_w + seg_gap)
         centers = [
@@ -433,29 +432,24 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
             sx + seg_w // 2,
             sx + (seg_w * 4) // 5,
         ]
-        # make a small red glow patch
-        glow_patch = Image.new("RGBA", (26,26), (255,60,60,90))
-        glow_patch = glow_patch.filter(ImageFilter.GaussianBlur(8))
+        glow_patch = Image.new("RGBA", (26,26), (200,0,0,110))
+        glow_patch = glow_patch.filter(ImageFilter.GaussianBlur(6))
         for c in centers:
-            # paste glow
             gx = c - glow_patch.size[0]//2
             gy = cy - glow_patch.size[1]//2
             img.paste(glow_patch, (gx, gy), glow_patch)
-            _draw_tiny_skull(draw, c, cy, scale=9, color=(255,255,255,255))
+            _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
 
     # labels under segments (auto-shrink/abbrev if needed)
     label_y = y + bar_h + 8
-    # make a slightly smaller label font if the text won't fit segment width
     base_size =  int(getattr(font, "size", 32))
     path_body =  getattr(font, "path", _resolve_font_path("DejaVuSans.ttf"))
     for i, lab in enumerate(THREAT_LEVELS):
         text_to_use = lab
         tw = measure_line_width(font, lab)
         if tw > seg_w - 10:
-            # try abbreviation
             text_to_use = _abbrev_label(lab)
             tw = measure_line_width(font, text_to_use)
-        # if still too wide, shrink font a bit
         used_font = font
         if tw > seg_w - 10 and path_body:
             size = base_size
@@ -475,6 +469,62 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
 
 # ===================== CARD BUILDER =====================
 
+def _measure_origin_with_dropcap(origin_text: str, body_font: ImageFont.FreeTypeFont,
+                                 origin_wrap_w: int, line_gap: int, body_indent_px: int) -> Tuple[int, dict]:
+    """
+    Returns (measured_height, info) for origin with a drop cap.
+    info contains: drop_char, drop_w, drop_h, wrap_lines, lines (list), dropcap_size
+    """
+    text = origin_text or ""
+    if not text:
+        return 0, {"lines": [], "drop_char": "", "drop_w": 0, "drop_h": 0, "wrap_lines": 0, "dropcap_size": 0}
+
+    # first visible char as drop cap
+    stripped = text.lstrip()
+    leading_ws = text[:len(text) - len(stripped)]
+    drop_char = stripped[0]
+    rest_text = leading_ws + stripped[1:]
+
+    # drop cap font sizing
+    body_h = text_height(body_font)
+    dropcap_size = int(body_h * 3.1)
+    path_body = getattr(body_font, "path", _resolve_font_path("DejaVuSans.ttf"))
+    try:
+        drop_font = ImageFont.truetype(path_body, dropcap_size)
+    except Exception:
+        drop_font = body_font
+    drop_w = measure_line_width(drop_font, drop_char)
+    drop_h = text_height(drop_font)
+
+    wrap_lines = max(2, min(3, (drop_h + line_gap) // (body_h + line_gap)))
+
+    # variable-width wrapping (first N lines wrap around drop cap)
+    words = (rest_text or "").split()
+    lines = []
+    current = ""
+    while words:
+        word = words.pop(0)
+        candidate = (current + " " + word).strip()
+        max_w = origin_wrap_w - (drop_w + 12) if len(lines) < wrap_lines else origin_wrap_w
+        if measure_line_width(body_font, candidate) <= max_w:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+
+    height = len(lines) * (body_h + line_gap)
+    return height, {
+        "lines": lines,
+        "drop_char": drop_char,
+        "drop_w": drop_w,
+        "drop_h": drop_h,
+        "wrap_lines": wrap_lines,
+        "dropcap_size": dropcap_size
+    }
+
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     """
     Core polished card with:
@@ -484,6 +534,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     - Threat Level moved to render last (above Origin) with labeled meter
     - Catchphrase glow + red bullets for Crimes
     - Divider + first-line indent for Origin
+    - Drop-cap Origin, dossier texture, footer with hashtag + QR
     """
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     bullet_color = (255, 75, 75, 255)  # blood-red bullets
@@ -563,28 +614,23 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     left_column_bottom = margin + title_h + section_gap + meta_height
     origin_start_y = max(left_column_bottom, portrait_bottom + margin)
 
-    # Origin measurement
+    # Origin measurement (with drop cap)
     origin_label_h = text_height(section_font) + label_gap
     origin_wrap_w = card_width - (margin * 2) - body_indent_px
-    origin_lines, origin_block_h = measure_paragraph_height(origin_text, body_font, origin_wrap_w, line_gap)
-    origin_total_h = origin_label_h + origin_block_h + section_gap
+    origin_h, origin_info = _measure_origin_with_dropcap(origin_text, body_font, origin_wrap_w, line_gap, body_indent_px)
+    origin_total_h = origin_label_h + origin_h + section_gap
 
-    card_height = origin_start_y + origin_total_h + margin
+    # Total card height includes footer band so QR/hashtag never overlap Origin
+    card_height = origin_start_y + origin_total_h + FOOTER_BAND_H + margin
 
     # --- background: subtle dossier paper over deep black ---
     image = Image.new("RGBA", (card_width, card_height), (8, 8, 8, 255))  # deep black base
     if os.path.exists(DOSSIER_TEXTURE):
         tex = Image.open(DOSSIER_TEXTURE).convert("RGBA")
         tex = ImageOps.fit(tex, (card_width, card_height))
-        # fade texture so text stays crisp (≈ 25% opacity)
-        alpha = Image.new("L", tex.size, 64)  # 0..255
+        alpha = Image.new("L", tex.size, 64)  # ≈25% opacity
         tex.putalpha(alpha)
         image.alpha_composite(tex)
-    draw = ImageDraw.Draw(image)
-
-
-    # --- Draw pass ---
-    image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(image)
 
     # Portrait with soft white outer glow
@@ -645,24 +691,16 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     left_max_w = left_col_width
 
     def draw_bulleted_lines(lines: List[str]):
-        """
-        Draws bullet lines where the first line of each item starts with '• '.
-        The bullet dot is drawn as a small red circle; continuation lines align without bullets.
-        """
         nonlocal left_y
         for ln in lines:
             if ln.startswith("• "):
-                # positions
                 dot_radius = 5
                 dot_x = left_x + body_indent_px
                 dot_y = left_y + text_height(body_font) // 2
-                # draw dot
                 draw.ellipse((dot_x - dot_radius, dot_y - dot_radius, dot_x + dot_radius, dot_y + dot_radius), fill=bullet_color)
-                # draw text (after some spacing)
                 text_x = dot_x + dot_radius * 2 + 10
                 draw.text((text_x, left_y), ln[2:], font=body_font, fill=theme["text"])
             else:
-                # continuation line: align with text_x used above
                 cont_x = left_x + body_indent_px + (5 * 2) + 10
                 draw.text((cont_x, left_y), ln, font=body_font, fill=theme["text"])
             left_y += text_height(body_font) + line_gap
@@ -679,7 +717,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
             f = italic_font if italic else body_font
             lines, _ = measure_paragraph_height(str(content), f, left_max_w - body_indent_px, line_gap)
             if special_catchphrase:
-                # draw with glow for cinematic emphasis (accent color)
                 y_cursor = left_y
                 for ln in lines:
                     draw_glow_text(
@@ -713,12 +750,11 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw.text((left_x, left_y), "Threat Level:", font=section_font, fill=theme["text"])
     left_y += text_height(section_font) + label_gap
     # Stretch to same right edge as Origin (start = margin+indent, width = origin_wrap_w)
-    origin_wrap_w = card_width - (margin * 2) - body_indent_px
     meter_w = origin_wrap_w
     draw_threat_meter(image, draw, left_x + body_indent_px, left_y, meter_w, threat_level, body_font)
-    left_y += THREAT_METER_HEIGHT + section_gap + 4  # extra breathing room
+    left_y += THREAT_METER_HEIGHT + section_gap + 4
 
-    # Divider + Origin
+    # Divider + Origin (with drop cap)
     y_origin = max(left_y, (margin + portrait_size[1]) + margin)
     divider_y = y_origin - int(section_gap * 0.5)
     draw.line([(margin, divider_y), (card_width - margin, divider_y)], fill=(255, 255, 255, 60), width=2)
@@ -726,14 +762,55 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw.text((margin, y_origin), "Origin:", font=section_font, fill=theme["text"])
     y_origin += text_height(section_font) + label_gap
 
-    origin_lines, _ = measure_paragraph_height(origin_text, body_font, origin_wrap_w, line_gap)
-    first_line_extra_indent = 12
-    is_first = True
-    for ln in origin_lines:
-        indent = body_indent_px + (first_line_extra_indent if is_first and ln.strip() else 0)
-        draw.text((margin + indent, y_origin), ln, font=body_font, fill=theme["text"])
-        y_origin += text_height(body_font) + line_gap
-        is_first = False
+    # Draw drop cap + wrapped lines
+    body_h = text_height(body_font)
+    path_body = getattr(body_font, "path", _resolve_font_path("DejaVuSans.ttf"))
+    try:
+        drop_font = ImageFont.truetype(path_body, origin_info["dropcap_size"])
+    except Exception:
+        drop_font = body_font
+    # drop cap
+    if origin_info["drop_char"]:
+        drop_x = margin + body_indent_px
+        drop_y = y_origin
+        draw.text((drop_x, drop_y), origin_info["drop_char"], font=drop_font, fill=theme["text"])
+        drop_w = origin_info["drop_w"]
+        wrap_lines = origin_info["wrap_lines"]
+    else:
+        drop_w = 0
+        wrap_lines = 0
+
+    # draw wrapped lines with variable indent for first wrap_lines
+    line_idx = 0
+    for ln in origin_info["lines"]:
+        if line_idx < wrap_lines:
+            x_text = margin + body_indent_px + drop_w + 12
+        else:
+            x_text = margin + body_indent_px
+        draw.text((x_text, y_origin), ln, font=body_font, fill=theme["text"])
+        y_origin += body_h + line_gap
+        line_idx += 1
+
+    # --- Footer band: hashtag (left) + QR (right) ---
+    footer_y = y_origin + 8
+    # optional faint separator
+    draw.line([(margin, footer_y), (card_width - margin, footer_y)], fill=(255,255,255,40), width=1)
+    footer_y += 10
+
+    # Hashtag bottom-left
+    ht = text_height(body_font)
+    draw.text((margin, footer_y + (FOOTER_BAND_H - ht)//2), HASHTAG_TEXT, font=body_font, fill=(235,235,235,255))
+
+    # QR bottom-right
+    if os.path.exists(QR_STAMP):
+        try:
+            qr = Image.open(QR_STAMP).convert("RGBA")
+            qr = qr.resize((QR_SIZE, QR_SIZE), Image.LANCZOS)
+            qr_x = card_width - margin - QR_SIZE
+            qr_y = footer_y + (FOOTER_BAND_H - QR_SIZE)//2
+            image.paste(qr, (qr_x, qr_y), qr)
+        except Exception as _:
+            pass
 
     # Border
     image = ImageOps.expand(image, border=6, fill="white")
