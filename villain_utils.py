@@ -1,7 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 import os
 import datetime
-import textwrap
 import streamlit as st
 from openai import OpenAI
 import base64
@@ -27,7 +26,7 @@ STYLE_THEMES = {
 CARD_FOLDER   = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER  = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
 DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
-FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"  # your custom fonts folder
+FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
 LOG_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 
 # Strong portrait guidance to avoid icon/sticker/logo outcomes.
@@ -69,7 +68,6 @@ def save_visual_prompt_to_log(name, prompt):
 
 # ===================== SAFETY / SANITIZATION =====================
 
-# Terms that often trigger content violations for image models.
 BANNED_REGEXES = [
     r"\b(blood|bloody|bloodied|gore|gory|guts|entrails|decapitat\w*|behead\w*|mutilat\w*|tortur\w*|maim\w*|"
     r"throat\s*slit|knife\s*to\s*throat|dismember\w*|severed)\b",
@@ -77,17 +75,13 @@ BANNED_REGEXES = [
     r"\b(rape|sexual|sex|nude|nudity|breasts?|nipples?|genitals?|explicit|fetish)\b",
     r"\b(child|children|minor|underage|schoolgirl|teen\b)\b",
     r"\b(hate\s*symbol|nazi|swastika|kkk|lynch\w*)\b",
-    r"[\"“”‘’][^\"“”‘’]{0,80}[\"“”‘’]",  # strip quoted lines (names/slogans/signs)
+    r"[\"“”‘’][^\"“”‘’]{0,80}[\"“”‘’]",
 ]
 
 def sanitize_for_images(text: str, max_len: int = 300) -> str:
-    """
-    PG-13 sanitize any freeform text before it gets near image prompts.
-    """
     if not text:
         return ""
-    s = text
-    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s+", " ", text).strip()
     for rx in BANNED_REGEXES:
         s = re.sub(rx, "redacted", s, flags=re.IGNORECASE)
     if len(s) > max_len:
@@ -108,13 +102,6 @@ def _first_existing(paths):
     return None
 
 def _resolve_font_path(filename):
-    """
-    Try multiple locations so size really applies:
-    1) Project FONT_PATH
-    2) ./fonts/ttf relative to repo root
-    3) Windows fonts (Arial/Arial Bold/Italic)
-    4) PIL bundled DejaVu fonts
-    """
     candidates = [
         os.path.join(FONT_PATH, filename),
         os.path.join("fonts", "ttf", filename),
@@ -136,10 +123,6 @@ def _resolve_font_path(filename):
     return _first_existing(candidates)
 
 def load_fonts():
-    """
-    Ensure TrueType fonts are loaded. If a TTF can't be found,
-    warn and fall back (bitmap default will look tiny).
-    """
     names = {
         "title":   "DejaVuSans-Bold.ttf",
         "subtitle":"DejaVuSans-Bold.ttf",
@@ -149,11 +132,11 @@ def load_fonts():
     }
     paths = {k: _resolve_font_path(v) for k, v in names.items()}
 
-    # Sizes tuned for social readability
-    SIZE_TITLE    = 72   # main name
-    SIZE_SUBTITLE = 52   # "aka Alias"
-    SIZE_SECTION  = 44   # section labels
-    SIZE_BODY     = 34   # paragraph text
+    # Base sizes (will adapt for title/subtitle)
+    SIZE_TITLE_BASE    = 72
+    SIZE_SUBTITLE_BASE = 52
+    SIZE_SECTION       = 44
+    SIZE_BODY          = 34
 
     def _load(path, size, fallback_name):
         if path:
@@ -164,11 +147,11 @@ def load_fonts():
         print(f"[font] WARNING: Using PIL default for {fallback_name}. Text may look small if TrueType not found.")
         return ImageFont.load_default()
 
-    title_font    = _load(paths["title"],    SIZE_TITLE,    "title")
-    subtitle_font = _load(paths["subtitle"], SIZE_SUBTITLE, "subtitle")
-    section_font  = _load(paths["section"],  SIZE_SECTION,  "section")
-    body_font     = _load(paths["body"],     SIZE_BODY,     "body")
-    italic_font   = _load(paths["italic"],   SIZE_BODY,     "italic")
+    title_font_base    = _load(paths["title"],    SIZE_TITLE_BASE,    "title")
+    subtitle_font_base = _load(paths["subtitle"], SIZE_SUBTITLE_BASE, "subtitle")
+    section_font       = _load(paths["section"],  SIZE_SECTION,       "section")
+    body_font          = _load(paths["body"],     SIZE_BODY,          "body")
+    italic_font        = _load(paths["italic"],   SIZE_BODY,          "italic")
 
     try:
         set_debug_info(
@@ -179,7 +162,7 @@ def load_fonts():
     except Exception:
         pass
 
-    return title_font, subtitle_font, section_font, body_font, italic_font
+    return title_font_base, subtitle_font_base, section_font, body_font, italic_font
 
 # ===================== TEXT MEASUREMENT HELPERS =====================
 
@@ -234,34 +217,85 @@ def measure_bullets_height(items: List[str], font: ImageFont.FreeTypeFont, max_w
             total += text_height(font) + line_gap
     return render_lines, total
 
+# ===================== ADAPTIVE TITLE (1 & 2) =====================
+
+def _adaptive_title_fonts(name_txt: str, aka_txt: str, title_font_base: ImageFont.FreeTypeFont,
+                          subtitle_font_base: ImageFont.FreeTypeFont, max_width: int,
+                          max_name_lines: int = 2, max_aka_lines: int = 2,
+                          min_title: int = 44, min_subtitle: int = 34):
+    """
+    Downscales title/subtitle fonts in 4pt steps until both fit within line limits and width.
+    """
+    # Detect font file path to recreate at new sizes
+    def _infer_path(font_obj):
+        # PIL stores path on FreeTypeFont as .path in newer Pillow; fallback to DejaVu
+        return getattr(font_obj, "path", _resolve_font_path("DejaVuSans-Bold.ttf"))
+
+    title_path    = _infer_path(title_font_base)
+    subtitle_path = _infer_path(subtitle_font_base)
+
+    # Get current sizes (approx) by measuring "Ay" height and back-solving is unreliable; we step from bases.
+    # Start sizes
+    size_title    = 72
+    size_subtitle = 52
+
+    def mk_font(path, size):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            return ImageFont.load_default()
+
+    while True:
+        title_font    = mk_font(title_path, size_title)
+        subtitle_font = mk_font(subtitle_path, size_subtitle)
+
+        name_lines = wrap_text_pixels(name_txt, title_font, max_width)
+        aka_lines  = wrap_text_pixels(aka_txt,  subtitle_font, max_width)
+
+        too_wide_or_long = (
+            len(name_lines) > max_name_lines or
+            len(aka_lines)  > max_aka_lines
+        )
+
+        # If still too long/wide and we can shrink more, step down
+        if too_wide_or_long and (size_title > min_title or size_subtitle > min_subtitle):
+            if size_title > min_title:
+                size_title -= 4
+            if size_subtitle > min_subtitle:
+                size_subtitle -= 4
+            continue
+
+        # Fits or hit minimums → return
+        return title_font, subtitle_font, name_lines, aka_lines
+
 # ===================== CARD BUILDER =====================
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
     """
-    Dynamic-height, social-ready villain card with:
-    - Portrait top-right
-    - Title split across two lines (Name, then 'aka Alias') with wrapping
-    - Meta sections in left column
-    - Origin full width beneath portrait (wraps under it)
+    Dynamic-height villain card:
+    1) Adaptive title scaling, two-line layout
+    2) Larger portrait with soft white outer glow
+    3) Consistent section spacing
+    4) Divider + first-line indent for Origin
     """
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
 
-    # Layout
+    # Layout & rhythm
     card_width      = 1200
     margin          = 40
-    portrait_size   = (360, 360)   # larger to match bigger text
-    section_gap     = 18
+    portrait_size   = (400, 400)     # (3) Larger portrait
+    section_gap     = 22             # (4) consistent rhythm
     label_gap       = 8
     line_gap        = 8
     title_line_gap  = 6
     bullet_indent   = 3
-    left_col_width  = card_width - (margin * 3) - portrait_size[0]  # space left of portrait
     body_indent_px  = 10
+    left_col_width  = card_width - (margin * 3) - portrait_size[0]  # space left of portrait
 
     # Fonts
-    title_font, subtitle_font, section_font, body_font, italic_font = load_fonts()
+    title_font_base, subtitle_font_base, section_font, body_font, italic_font = load_fonts()
 
-    # Normalize inputs
+    # Data
     catchphrase = villain.get("catchphrase", "") or "Unknown"
     crimes = villain.get("crimes", [])
     if isinstance(crimes, str):
@@ -278,21 +312,12 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     alias_text = str(villain.get('alias', 'Unknown') or 'Unknown').strip()
     aka_text = f"aka {alias_text}"
 
-    # --- Measure pass ---
+    # (1) Adaptive title fonts + wrapped two-line layout (2)
+    title_font, subtitle_font, name_lines, aka_lines = _adaptive_title_fonts(
+        name_text, aka_text, title_font_base, subtitle_font_base, left_col_width
+    )
 
-    # Title: two lines, both wrap within left_col_width so they never collide with the portrait.
-    name_lines = wrap_text_pixels(name_text, title_font, left_col_width)
-    aka_lines  = wrap_text_pixels(aka_text, subtitle_font, left_col_width)
-
-    title_h = 0
-    for ln in name_lines:
-        title_h += text_height(title_font) + title_line_gap
-    for ln in aka_lines:
-        title_h += text_height(subtitle_font) + title_line_gap
-    # remove last extra gap
-    if title_h > 0:
-        title_h -= title_line_gap
-
+    # --- Measure sections ---
     def measure_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None) -> int:
         h = text_height(section_font) + label_gap
         if bullets is not None:
@@ -313,11 +338,23 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     meta_height += measure_section("Threat Level", threat_level)
     meta_height += measure_section("Faction", faction)
 
+    # Title block height
+    title_h = 0
+    for ln in name_lines:
+        title_h += text_height(title_font) + title_line_gap
+    for ln in aka_lines:
+        title_h += text_height(subtitle_font) + title_line_gap
+    if title_h > 0:
+        title_h -= title_line_gap
+
     portrait_bottom = margin + portrait_size[1]
     left_column_bottom = margin + title_h + section_gap + meta_height
     origin_start_y = max(left_column_bottom, portrait_bottom + margin)
+
+    # Origin block measure
     origin_label_h = text_height(section_font) + label_gap
-    _, origin_block_h = measure_paragraph_height(origin_text, body_font, card_width - (margin * 2) - body_indent_px, line_gap)
+    origin_wrap_w = card_width - (margin * 2) - body_indent_px
+    origin_lines, origin_block_h = measure_paragraph_height(origin_text, body_font, origin_wrap_w, line_gap)
     origin_total_h = origin_label_h + origin_block_h + section_gap
 
     card_height = origin_start_y + origin_total_h + margin
@@ -326,7 +363,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(image)
 
-    # Portrait helpers
+    # Portrait helpers (3: outer white glow)
     def load_portrait(img_src):
         try:
             if img_src and hasattr(img_src, "read"):
@@ -341,20 +378,34 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
             return Image.open(DEFAULT_IMAGE).convert("RGBA")
         return None
 
-    def circular_glow(img):
+    def circular_with_glow(img):
         img = img.copy().resize(portrait_size)
         mask = Image.new("L", portrait_size, 0)
         ImageDraw.Draw(mask).ellipse((0, 0) + portrait_size, fill=255)
-        glow = img.copy().filter(ImageFilter.GaussianBlur(12))
-        out = Image.new("RGBA", portrait_size, (0, 0, 0, 0))
-        out.paste(glow, (0, 0), mask)
-        out.paste(img, (0, 0), mask)
+
+        # White outer glow
+        glow_size = (portrait_size[0] + 48, portrait_size[1] + 48)
+        glow = Image.new("RGBA", glow_size, (255, 255, 255, 0))
+        glow_mask = Image.new("L", glow_size, 0)
+        ImageDraw.Draw(glow_mask).ellipse((0, 0) + glow_size, fill=180)  # alpha
+        glow_blur = glow_mask.filter(ImageFilter.GaussianBlur(18))
+        glow_img = Image.new("RGBA", glow_size, (255, 255, 255, 80))
+        glow = Image.composite(glow_img, glow, glow_blur)
+
+        # Composite glow + portrait
+        out = Image.new("RGBA", glow_size, (0, 0, 0, 0))
+        out.paste(glow, (0, 0), glow)
+        # center portrait on glow
+        offset = ((glow_size[0] - portrait_size[0]) // 2, (glow_size[1] - portrait_size[1]) // 2)
+        circ = Image.new("RGBA", portrait_size, (0, 0, 0, 0))
+        circ.paste(img, (0, 0), mask)
+        out.paste(circ, offset, mask)
         return out
 
     portrait = load_portrait(image_file)
     if portrait:
-        final_portrait = circular_glow(portrait)
-        image.paste(final_portrait, (card_width - portrait_size[0] - margin, margin), final_portrait)
+        final_portrait = circular_with_glow(portrait)
+        image.paste(final_portrait, (card_width - final_portrait.size[0] - margin, margin), final_portrait)
 
     # Title (two lines, wrapped to left_col_width)
     x = margin
@@ -365,10 +416,9 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     for ln in aka_lines:
         draw.text((x, y), ln, font=subtitle_font, fill=theme["text"])
         y += text_height(subtitle_font) + title_line_gap
-    # slight space before sections
     y += section_gap
 
-    # Left column sections
+    # Left column sections (4: consistent spacing already applied via constants)
     left_x = margin
     left_y = y
     left_max_w = left_col_width
@@ -401,16 +451,24 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw_section("Threat Level", threat_level)
     draw_section("Faction", faction)
 
-    # Origin (full width)
-    y_origin = max(left_y, portrait_bottom + margin)
+    # (5) Divider before Origin + first-line indent behavior
+    y_origin = max(left_y, (margin + portrait_size[1]) + margin)
+    # Divider line
+    divider_y = y_origin - int(section_gap * 0.5)
+    draw.line([(margin, divider_y), (card_width - margin, divider_y)], fill=(255, 255, 255, 60), width=2)
+
     draw.text((margin, y_origin), "Origin:", font=section_font, fill=theme["text"])
     y_origin += text_height(section_font) + label_gap
 
-    origin_max_w = card_width - (margin * 2) - body_indent_px
-    origin_lines, _ = measure_paragraph_height(origin_text, body_font, origin_max_w, line_gap)
+    # First-line indent: indent only the very first origin line a bit more
+    origin_lines, _ = measure_paragraph_height(origin_text, body_font, origin_wrap_w, line_gap)
+    first_line_extra_indent = 12
+    is_first = True
     for ln in origin_lines:
-        draw.text((margin + body_indent_px, y_origin), ln, font=body_font, fill=theme["text"])
+        indent = body_indent_px + (first_line_extra_indent if is_first and ln.strip() else 0)
+        draw.text((margin + indent, y_origin), ln, font=body_font, fill=theme["text"])
         y_origin += text_height(body_font) + line_gap
+        is_first = False
 
     # Border
     image = ImageOps.expand(image, border=6, fill="white")
@@ -428,9 +486,6 @@ def _theme_style_line(villain: dict) -> str:
     return safe_theme_line(villain)
 
 def generate_visual_prompt(villain):
-    """
-    Build a PG-13 visual prompt for DALL·E with explicit guardrails.
-    """
     client = OpenAI()
 
     gender_hint = (villain.get("gender", "unknown") or "").lower()
