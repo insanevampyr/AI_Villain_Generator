@@ -752,14 +752,6 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         draw.text((margin + body_indent_px, y_origin), ln, font=body_font, fill=theme["text"])
         y_origin += text_height(body_font) + line_gap
 
-    # wrapped lines (first N lines wrap around the dropcap)
-    line_idx = 0
-    for ln in origin_info["lines"]:
-        x_text = margin + body_indent_px + (drop_w + 12 if line_idx < wrap_lines else 0)
-        draw.text((x_text, y_origin), ln, font=body_font, fill=theme["text"])
-        y_origin += body_h + line_gap
-        line_idx += 1
-
     # Footer: hashtag left, QR right (pinned to bottom)
     footer_y = card_height - FOOTER_BAND_H
     draw.line([(margin, footer_y), (card_width - margin, footer_y)], fill=(255,255,255,40), width=1)
