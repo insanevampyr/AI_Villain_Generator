@@ -28,6 +28,8 @@ IMAGE_FOLDER  = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
 DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
 FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
 LOG_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
+DOSSIER_TEXTURE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/dossier_paper.png"
+
 
 # Portrait quality guidance
 QUALITY_HINT = (
@@ -286,7 +288,7 @@ THREAT_COLORS = [
     (56, 200, 90, 255),    # Laughably Low
     (255, 208, 0, 255),    # Moderate
     (255, 140, 0, 255),    # High
-    (255, 64, 64, 255),    # Extreme
+    (178, 0, 0, 255)       # Extreme
 ]
 
 # Total vertical space the meter (bar + labels) needs
@@ -568,6 +570,18 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     origin_total_h = origin_label_h + origin_block_h + section_gap
 
     card_height = origin_start_y + origin_total_h + margin
+
+    # --- background: subtle dossier paper over deep black ---
+    image = Image.new("RGBA", (card_width, card_height), (8, 8, 8, 255))  # deep black base
+    if os.path.exists(DOSSIER_TEXTURE):
+        tex = Image.open(DOSSIER_TEXTURE).convert("RGBA")
+        tex = ImageOps.fit(tex, (card_width, card_height))
+        # fade texture so text stays crisp (≈ 25% opacity)
+        alpha = Image.new("L", tex.size, 64)  # 0..255
+        tex.putalpha(alpha)
+        image.alpha_composite(tex)
+    draw = ImageDraw.Draw(image)
+
 
     # --- Draw pass ---
     image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
