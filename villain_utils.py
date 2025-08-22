@@ -83,18 +83,13 @@ BANNED_REGEXES = [
 def sanitize_for_images(text: str, max_len: int = 300) -> str:
     """
     PG-13 sanitize any freeform text before it gets near image prompts.
-    - Remove/obfuscate risky words/phrases
-    - Trim very long origins to avoid dragging in sensitive details
     """
     if not text:
         return ""
     s = text
-    # Normalize whitespace
     s = re.sub(r"\s+", " ", s).strip()
-    # Apply regex redactions
     for rx in BANNED_REGEXES:
         s = re.sub(rx, "redacted", s, flags=re.IGNORECASE)
-    # Hard-trim length
     if len(s) > max_len:
         s = s[:max_len].rsplit(" ", 1)[0] + "…"
     return s
@@ -117,53 +112,48 @@ def _resolve_font_path(filename):
     Try multiple locations so size really applies:
     1) Project FONT_PATH
     2) ./fonts/ttf relative to repo root
-    3) Windows fonts (Arial/Arial Bold)
+    3) Windows fonts (Arial/Arial Bold/Italic)
     4) PIL bundled DejaVu fonts
     """
-    # 1) Project path
     candidates = [
         os.path.join(FONT_PATH, filename),
         os.path.join("fonts", "ttf", filename),
         os.path.join(".", "fonts", "ttf", filename),
     ]
-
-    # 2) Windows common fallbacks
     win_map = {
-        "DejaVuSans.ttf":       r"C:\Windows\Fonts\arial.ttf",
-        "DejaVuSans-Bold.ttf":  r"C:\Windows\Fonts\arialbd.ttf",
+        "DejaVuSans.ttf":         r"C:\Windows\Fonts\arial.ttf",
+        "DejaVuSans-Bold.ttf":    r"C:\Windows\Fonts\arialbd.ttf",
         "DejaVuSans-Oblique.ttf": r"C:\Windows\Fonts\ariali.ttf",
     }
     if os.name == "nt" and filename in win_map:
         candidates.append(win_map[filename])
-
-    # 3) PIL bundled fonts
     try:
         import PIL
         pil_fonts = os.path.join(os.path.dirname(PIL.__file__), "fonts")
         candidates.append(os.path.join(pil_fonts, filename))
     except Exception:
         pass
-
     return _first_existing(candidates)
 
 def load_fonts():
     """
     Ensure TrueType fonts are loaded. If a TTF can't be found,
-    warn and fall back (but that bitmap font will look tiny).
+    warn and fall back (bitmap default will look tiny).
     """
     names = {
         "title":   "DejaVuSans-Bold.ttf",
+        "subtitle":"DejaVuSans-Bold.ttf",
         "section": "DejaVuSans-Bold.ttf",
         "body":    "DejaVuSans.ttf",
         "italic":  "DejaVuSans-Oblique.ttf",
     }
-
     paths = {k: _resolve_font_path(v) for k, v in names.items()}
 
     # Sizes tuned for social readability
-    SIZE_TITLE   = 72   # big headline
-    SIZE_SECTION = 44   # section labels
-    SIZE_BODY    = 34   # paragraph text
+    SIZE_TITLE    = 72   # main name
+    SIZE_SUBTITLE = 52   # "aka Alias"
+    SIZE_SECTION  = 44   # section labels
+    SIZE_BODY     = 34   # paragraph text
 
     def _load(path, size, fallback_name):
         if path:
@@ -174,22 +164,22 @@ def load_fonts():
         print(f"[font] WARNING: Using PIL default for {fallback_name}. Text may look small if TrueType not found.")
         return ImageFont.load_default()
 
-    title_font   = _load(paths["title"],   SIZE_TITLE,   "title")
-    section_font = _load(paths["section"], SIZE_SECTION, "section")
-    body_font    = _load(paths["body"],    SIZE_BODY,    "body")
-    italic_font  = _load(paths["italic"],  SIZE_BODY,    "italic")
+    title_font    = _load(paths["title"],    SIZE_TITLE,    "title")
+    subtitle_font = _load(paths["subtitle"], SIZE_SUBTITLE, "subtitle")
+    section_font  = _load(paths["section"],  SIZE_SECTION,  "section")
+    body_font     = _load(paths["body"],     SIZE_BODY,     "body")
+    italic_font   = _load(paths["italic"],   SIZE_BODY,     "italic")
 
-    # Log which paths were used for quick debugging
     try:
         set_debug_info(
             context="Card Fonts",
-            prompt=f"title={paths['title']}, section={paths['section']}, body={paths['body']}, italic={paths['italic']}",
+            prompt=f"title={paths['title']}, subtitle={paths['subtitle']}, section={paths['section']}, body={paths['body']}, italic={paths['italic']}",
             cost_only=True
         )
     except Exception:
         pass
 
-    return title_font, section_font, body_font, italic_font
+    return title_font, subtitle_font, section_font, body_font, italic_font
 
 # ===================== TEXT MEASUREMENT HELPERS =====================
 
@@ -250,6 +240,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     """
     Dynamic-height, social-ready villain card with:
     - Portrait top-right
+    - Title split across two lines (Name, then 'aka Alias') with wrapping
     - Meta sections in left column
     - Origin full width beneath portrait (wraps under it)
     """
@@ -258,16 +249,17 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     # Layout
     card_width      = 1200
     margin          = 40
-    portrait_size   = (360, 360)   # a touch larger to match bigger text
+    portrait_size   = (360, 360)   # larger to match bigger text
     section_gap     = 18
     label_gap       = 8
     line_gap        = 8
+    title_line_gap  = 6
     bullet_indent   = 3
-    left_col_width  = card_width - (margin * 3) - portrait_size[0]
+    left_col_width  = card_width - (margin * 3) - portrait_size[0]  # space left of portrait
     body_indent_px  = 10
 
     # Fonts
-    title_font, section_font, body_font, italic_font = load_fonts()
+    title_font, subtitle_font, section_font, body_font, italic_font = load_fonts()
 
     # Normalize inputs
     catchphrase = villain.get("catchphrase", "") or "Unknown"
@@ -282,9 +274,24 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     faction      = villain.get("faction", "Unknown")
     origin_text  = villain.get("origin", "Unknown")
 
-    # Measure pass
-    title_text = f"{villain.get('name','Unknown')} aka {villain.get('alias','Unknown')}"
-    title_h = text_height(title_font)
+    name_text = str(villain.get('name', 'Unknown') or 'Unknown').strip()
+    alias_text = str(villain.get('alias', 'Unknown') or 'Unknown').strip()
+    aka_text = f"aka {alias_text}"
+
+    # --- Measure pass ---
+
+    # Title: two lines, both wrap within left_col_width so they never collide with the portrait.
+    name_lines = wrap_text_pixels(name_text, title_font, left_col_width)
+    aka_lines  = wrap_text_pixels(aka_text, subtitle_font, left_col_width)
+
+    title_h = 0
+    for ln in name_lines:
+        title_h += text_height(title_font) + title_line_gap
+    for ln in aka_lines:
+        title_h += text_height(subtitle_font) + title_line_gap
+    # remove last extra gap
+    if title_h > 0:
+        title_h -= title_line_gap
 
     def measure_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None) -> int:
         h = text_height(section_font) + label_gap
@@ -315,7 +322,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 
     card_height = origin_start_y + origin_total_h + margin
 
-    # Draw pass
+    # --- Draw pass ---
     image = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 255))
     draw = ImageDraw.Draw(image)
 
@@ -349,11 +356,17 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         final_portrait = circular_glow(portrait)
         image.paste(final_portrait, (card_width - portrait_size[0] - margin, margin), final_portrait)
 
-    # Title
+    # Title (two lines, wrapped to left_col_width)
     x = margin
     y = margin
-    draw.text((x, y), title_text, font=title_font, fill=theme["accent"])
-    y += title_h + section_gap
+    for ln in name_lines:
+        draw.text((x, y), ln, font=title_font, fill=theme["accent"])
+        y += text_height(title_font) + title_line_gap
+    for ln in aka_lines:
+        draw.text((x, y), ln, font=subtitle_font, fill=theme["text"])
+        y += text_height(subtitle_font) + title_line_gap
+    # slight space before sections
+    y += section_gap
 
     # Left column sections
     left_x = margin
@@ -432,7 +445,6 @@ def generate_visual_prompt(villain):
 
     theme_line = _theme_style_line(villain)
 
-    # Sanitize freeform fields before use
     origin_s = sanitize_for_images(villain.get("origin", ""))
     power_s  = sanitize_for_images(villain.get("power", ""))
 
@@ -468,7 +480,6 @@ def generate_visual_prompt(villain):
         return visual_prompt
     except Exception as e:
         print(f"[Error generating visual prompt]: {e}")
-        # Super-safe default
         fallback = (
             "Cinematic PG-13 villain portrait, 3/4 bust, dramatic lighting, detailed clothing and atmosphere, "
             "no text, no logos, no flags, no gore, no sexualization, no minors."
@@ -485,10 +496,6 @@ def _decode_and_check_png(b64: str) -> bytes:
     return raw
 
 def _gen_once(client: OpenAI, prompt: str, allow_style: bool = True):
-    """
-    Generate one image at 1024x1024 using base64 to avoid CDN/thumb issues.
-    If allow_style is True, try a vivid style hint; otherwise omit for compatibility.
-    """
     kwargs = dict(
         model="dall-e-3",
         prompt=prompt,
@@ -501,9 +508,6 @@ def _gen_once(client: OpenAI, prompt: str, allow_style: bool = True):
     return client.images.generate(**kwargs)
 
 def _safe_placeholder(out_path: str) -> str:
-    """
-    Copies DEFAULT_IMAGE to the desired output path to keep app flow alive if both attempts fail.
-    """
     try:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         if os.path.exists(DEFAULT_IMAGE):
@@ -517,12 +521,6 @@ def _safe_placeholder(out_path: str) -> str:
     return out_path
 
 def generate_ai_portrait(villain):
-    """
-    1) Build sanitized visual prompt
-    2) Try vivid generation
-    3) If 400/safety → fallback to ultra-safe theme-only prompt without style
-    4) If still fails → save placeholder to expected path
-    """
     client = OpenAI()
     visual_prompt = generate_visual_prompt(villain)
     final_prompt = visual_prompt
@@ -532,7 +530,6 @@ def generate_ai_portrait(villain):
     img_path = os.path.join(IMAGE_FOLDER, f"ai_portrait_{vid}.png")
 
     image_calls = 0
-    # Attempt 1 — with style
     try:
         resp = _gen_once(client, final_prompt, allow_style=True)
         image_calls += 1
@@ -543,7 +540,6 @@ def generate_ai_portrait(villain):
         set_debug_info(context="DALL·E Image", prompt=final_prompt, cost_only=True, image_count=image_calls)
         return img_path
     except Exception as e1:
-        # Attempt 2 — safe fallback, no style, no origin details
         print(f"[Image attempt 1 failed, retrying safe fallback] {e1}")
         safe_theme = safe_theme_line(villain)
         gender_hint = (villain.get("gender", "unknown") or "").lower()
