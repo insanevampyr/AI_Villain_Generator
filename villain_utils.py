@@ -27,7 +27,7 @@ STYLE_THEMES = {
 CARD_FOLDER   = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
 IMAGE_FOLDER  = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
 DEFAULT_IMAGE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
-FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
+FONT_PATH     = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"  # your custom fonts folder
 LOG_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 
 # Strong portrait guidance to avoid icon/sticker/logo outcomes.
@@ -104,17 +104,94 @@ def safe_theme_line(villain: dict) -> str:
     s = THEME_VISUALS.get(t)
     return f"Theme style: {s}." if s else ""
 
-# ===================== TEXT MEASUREMENT HELPERS =====================
+# ===================== FONT LOADING (bulletproof) =====================
+
+def _first_existing(paths):
+    for p in paths:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+def _resolve_font_path(filename):
+    """
+    Try multiple locations so size really applies:
+    1) Project FONT_PATH
+    2) ./fonts/ttf relative to repo root
+    3) Windows fonts (Arial/Arial Bold)
+    4) PIL bundled DejaVu fonts
+    """
+    # 1) Project path
+    candidates = [
+        os.path.join(FONT_PATH, filename),
+        os.path.join("fonts", "ttf", filename),
+        os.path.join(".", "fonts", "ttf", filename),
+    ]
+
+    # 2) Windows common fallbacks
+    win_map = {
+        "DejaVuSans.ttf":       r"C:\Windows\Fonts\arial.ttf",
+        "DejaVuSans-Bold.ttf":  r"C:\Windows\Fonts\arialbd.ttf",
+        "DejaVuSans-Oblique.ttf": r"C:\Windows\Fonts\ariali.ttf",
+    }
+    if os.name == "nt" and filename in win_map:
+        candidates.append(win_map[filename])
+
+    # 3) PIL bundled fonts
+    try:
+        import PIL
+        pil_fonts = os.path.join(os.path.dirname(PIL.__file__), "fonts")
+        candidates.append(os.path.join(pil_fonts, filename))
+    except Exception:
+        pass
+
+    return _first_existing(candidates)
 
 def load_fonts():
+    """
+    Ensure TrueType fonts are loaded. If a TTF can't be found,
+    warn and fall back (but that bitmap font will look tiny).
+    """
+    names = {
+        "title":   "DejaVuSans-Bold.ttf",
+        "section": "DejaVuSans-Bold.ttf",
+        "body":    "DejaVuSans.ttf",
+        "italic":  "DejaVuSans-Oblique.ttf",
+    }
+
+    paths = {k: _resolve_font_path(v) for k, v in names.items()}
+
+    # Sizes tuned for social readability
+    SIZE_TITLE   = 72   # big headline
+    SIZE_SECTION = 44   # section labels
+    SIZE_BODY    = 34   # paragraph text
+
+    def _load(path, size, fallback_name):
+        if path:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception as e:
+                print(f"[font] Failed to load {path}: {e}")
+        print(f"[font] WARNING: Using PIL default for {fallback_name}. Text may look small if TrueType not found.")
+        return ImageFont.load_default()
+
+    title_font   = _load(paths["title"],   SIZE_TITLE,   "title")
+    section_font = _load(paths["section"], SIZE_SECTION, "section")
+    body_font    = _load(paths["body"],    SIZE_BODY,    "body")
+    italic_font  = _load(paths["italic"],  SIZE_BODY,    "italic")
+
+    # Log which paths were used for quick debugging
     try:
-        title_font   = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 64)
-        section_font = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Bold.ttf", 38)
-        body_font    = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans.ttf", 30)
-        italic_font  = ImageFont.truetype(f"{FONT_PATH}/DejaVuSans-Oblique.ttf", 30)
-    except IOError:
-        title_font = section_font = body_font = italic_font = ImageFont.load_default()
+        set_debug_info(
+            context="Card Fonts",
+            prompt=f"title={paths['title']}, section={paths['section']}, body={paths['body']}, italic={paths['italic']}",
+            cost_only=True
+        )
+    except Exception:
+        pass
+
     return title_font, section_font, body_font, italic_font
+
+# ===================== TEXT MEASUREMENT HELPERS =====================
 
 def text_height(font: ImageFont.FreeTypeFont, sample: str = "Ay") -> int:
     bbox = font.getbbox(sample)
@@ -160,10 +237,8 @@ def measure_bullets_height(items: List[str], font: ImageFont.FreeTypeFont, max_w
         rest_prefix  = " " * bullet_indent
         first_w = measure_line_width(font, first_prefix)
         raw_lines = wrap_text_pixels(str(item), font, max_width - first_w) or [""]
-        # First line
         render_lines.append(first_prefix + raw_lines[0])
         total += text_height(font) + line_gap
-        # Continuations
         for ln in raw_lines[1:]:
             render_lines.append(rest_prefix + ln)
             total += text_height(font) + line_gap
@@ -183,10 +258,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     # Layout
     card_width      = 1200
     margin          = 40
-    portrait_size   = (320, 320)
-    section_gap     = 14
-    label_gap       = 6
-    line_gap        = 6
+    portrait_size   = (360, 360)   # a touch larger to match bigger text
+    section_gap     = 18
+    label_gap       = 8
+    line_gap        = 8
     bullet_indent   = 3
     left_col_width  = card_width - (margin * 3) - portrait_size[0]
     body_indent_px  = 10
@@ -437,7 +512,6 @@ def _safe_placeholder(out_path: str) -> str:
             return out_path
     except Exception:
         pass
-    # As a last resort, create a simple blank
     img = Image.new("RGBA", (1024, 1024), (0, 0, 0, 255))
     img.save(out_path)
     return out_path
@@ -500,7 +574,6 @@ def generate_ai_portrait(villain):
         except Exception as e2:
             print(f"[Image attempt 2 failed; using placeholder] {e2}")
             placeholder = _safe_placeholder(img_path)
-            # Still record a cost line with 2 calls if both truly hit the API; if both were blocked early, this remains 1.
             try:
                 set_debug_info(context="DALL·E Image (placeholder)", prompt="(placeholder due to safety)", cost_only=True, image_count=image_calls or 1)
             except Exception:
