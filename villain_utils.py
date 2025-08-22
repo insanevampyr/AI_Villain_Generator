@@ -359,30 +359,16 @@ def _paste_skull_icon(img: Image.Image, cx: int, cy: int, size: int) -> bool:
         return False
 
 def _draw_tiny_skull_with_crossbones(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 9, color=(255,255,255,255)):
-    """
-    Minimal vector fallback so we never crash if the skull asset is missing.
-    Draws a tiny skull + crossed lines. Kept very small and soft.
-    """
-    s  = scale
-    x0 = cx - s
-    y0 = cy - s
-    x1 = cx + s
-    y1 = cy + s
-
-    # crossed bones
-    draw.line([(x0, y0), (x1, y1)], fill=color, width=2)
-    draw.line([(x0, y1), (x1, y0)], fill=color, width=2)
-
-    # skull-ish circle
-    draw.ellipse([(cx - s//2, cy - s//2), (cx + s//2, cy + s//2)], outline=color, width=2)
-
-    # eyes
-    ex = max(1, s//6)
-    draw.ellipse([(cx - s//4 - ex, cy - ex), (cx - s//4 + ex, cy + ex)], fill=color)
-    draw.ellipse([(cx + s//4 - ex, cy - ex), (cx + s//4 + ex, cy + ex)], fill=color)
-
-    # hint of teeth
-    draw.line([(cx - s//6, cy + s//4), (cx + s//6, cy + s//4)], fill=color, width=2)
+    """Very small vector fallback ☠ so we never show a dot/X if the PNG is missing."""
+    s = scale
+    # skull
+    draw.ellipse((cx-2*s, cy-2*s, cx+2*s, cy+2*s), outline=color, width=max(1, s//3))
+    draw.ellipse((cx-s//2, cy-s//2, cx, cy), fill=color)            # left eye
+    draw.ellipse((cx, cy-s//2, cx+s//2, cy), fill=color)            # right eye
+    draw.rectangle((cx-s//3, cy+s//3, cx+s//3, cy+s//3 + s//2), fill=color)
+    # crossbones
+    draw.line((cx-3*s, cy+2*s, cx+3*s, cy-2*s), fill=color, width=max(1, s//2))
+    draw.line((cx-3*s, cy-2*s, cx+3*s, cy+2*s), fill=color, width=max(1, s//2))
 
 
 def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
@@ -390,6 +376,7 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
     Draw a 4-section labeled meter. Lights all segments up to current level.
     Skulls are drawn INSIDE the bar: 1 for High, 3 for Extreme (using skull_icon.png).
     """
+    # geometry
     bar_h   = 46
     seg_gap = 8
     seg_w   = (width - seg_gap * 3) // 4
@@ -398,8 +385,9 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
     try:
         idx = THREAT_LEVELS.index(level)
     except ValueError:
-        idx = 1  # default Moderate
+        idx = 1
 
+    # segments (with glow)
     for i, _ in enumerate(THREAT_LEVELS):
         sx = x + i * (seg_w + seg_gap)
         rect = (sx, y, sx + seg_w, y + bar_h)
@@ -407,16 +395,17 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
         if i <= idx:
             _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
 
+    # skulls inside bar
     cy       = y + bar_h // 2
     skull_px = max(16, int(bar_h * 0.55))
 
-    if idx >= 2:  # High+
+    if idx >= 2:
         sx = x + 2 * (seg_w + seg_gap)
         cx = sx + seg_w // 2
         if not _paste_skull_icon(img, cx, cy, skull_px):
             _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
 
-    if idx >= 3:  # Extreme
+    if idx >= 3:
         sx = x + 3 * (seg_w + seg_gap)
         centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4) // 5]
         for c in centers:
@@ -426,6 +415,7 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
             if not _paste_skull_icon(img, c, cy, skull_px):
                 _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
 
+    # labels under segments (auto-fit)
     label_y   = y + bar_h + 8
     base_size = int(getattr(font, "size", 32))
     path_body = getattr(font, "path", _resolve_font_path("DejaVuSans.ttf"))
@@ -792,13 +782,13 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 
     if os.path.exists(QR_STAMP):
         try:
-            qr = Image.open(QR_STAMP).convert("RGBA")
-            qr = qr.resize((QR_SIZE, QR_SIZE), Image.LANCZOS)
+            qr = Image.open(QR_STAMP).convert("RGBA").resize((QR_SIZE, QR_SIZE), Image.LANCZOS)
             qr_x = card_width - margin - QR_SIZE
             qr_y = footer_y + (FOOTER_BAND_H - QR_SIZE)//2
             image.paste(qr, (qr_x, qr_y), qr)
         except Exception:
             pass
+
 
     # Border
     image = ImageOps.expand(image, border=6, fill="white")
