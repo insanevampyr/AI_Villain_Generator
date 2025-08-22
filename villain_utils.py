@@ -1,3 +1,4 @@
+# villain_utils.py
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 import os
 import datetime
@@ -29,16 +30,17 @@ DEFAULT_IMAGE   = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.
 FONT_PATH       = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
 LOG_FOLDER      = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
 DOSSIER_TEXTURE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/dossier_paper.png"
+
 # Footer / branding
-QR_STAMP      = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"
+QR_STAMP      = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"   # <-- your QR file
 HASHTAG_TEXT  = "#AIVillains"
 FOOTER_BAND_H = 96    # reserved footer height so text never overlaps
 QR_SIZE       = 88    # px
 FOOTER_PAD    = 24
 
-# Threat meter skull icon
+# Threat meter skull icon (your new one)
 SKULL_ICON    = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/skull_icon.png"
-SKULL_SIZE    = 22   # auto-scaled again in code by bar height
+SKULL_SIZE    = 22   # auto-scaled again by bar height
 
 # Portrait quality guidance
 QUALITY_HINT = (
@@ -276,9 +278,6 @@ def _adaptive_title_fonts(name_txt: str, aka_txt: str, title_font_base: ImageFon
 
 def draw_glow_text(base_img: Image.Image, xy: Tuple[int, int], text: str, font: ImageFont.FreeTypeFont,
                    glow_color=(255, 255, 255, 160), text_color=(255, 255, 255, 255), radius=6):
-    """
-    Draw text with a subtle soft glow (on its own layer, blurred, then the sharp text on top).
-    """
     layer = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     d.text(xy, text, font=font, fill=glow_color)
@@ -289,22 +288,16 @@ def draw_glow_text(base_img: Image.Image, xy: Tuple[int, int], text: str, font: 
 
 # ===================== THREAT METER =====================
 
-# Ordered labels requested
 THREAT_LEVELS = ["Laughably Low", "Moderate", "High", "Extreme"]
-
-# Colors ramp (progressively more wicked): green → yellow → orange → deep red
 THREAT_COLORS = [
-    (56, 200, 90, 255),    # Laughably Low
+    (56, 200, 90, 255),    # Low
     (255, 208, 0, 255),    # Moderate
     (255, 140, 0, 255),    # High
-    (178, 0, 0, 255)       # Extreme (darker crimson)
+    (178, 0, 0, 255),      # Extreme (darker crimson)
 ]
-
-# Total vertical space the meter (bar + labels) needs
-THREAT_METER_HEIGHT = 100  # room for labels/skulls
+THREAT_METER_HEIGHT = 100  # bar + labels
 
 def _normalize_threat_name(name: str) -> str:
-    """Map flexible input strings to the 4 canonical levels."""
     if not name:
         return "Moderate"
     s = name.strip().lower()
@@ -322,30 +315,25 @@ def _normalize_threat_name(name: str) -> str:
     return "Moderate"
 
 def _draw_segment_with_glow(base_img: Image.Image, rect: Tuple[int,int,int,int], color: Tuple[int,int,int,int]):
-    """Rounded rect with soft inner glow and faint texture slashes for upper tiers."""
     x1, y1, x2, y2 = rect
     w, h = x2 - x1, y2 - y1
     layer = Image.new("RGBA", (w, h), (0,0,0,0))
     d = ImageDraw.Draw(layer)
 
-    # base segment
     d.rounded_rectangle([(0,0),(w-1,h-1)], radius=8, fill=color)
 
-    # inner glow
     glow = Image.new("RGBA", (w, h), (255,255,255,0))
     dglow = ImageDraw.Draw(glow)
     dglow.rounded_rectangle([(3,3),(w-4,h-4)], radius=6, fill=(255,255,255,40))
     glow = glow.filter(ImageFilter.GaussianBlur(5))
     layer = Image.alpha_composite(layer, glow)
 
-    # vertical highlight strip
     hl = Image.new("RGBA", (w, h), (255,255,255,0))
     dhl = ImageDraw.Draw(hl)
     dhl.rectangle([(int(w*0.12), 2), (int(w*0.20), h-3)], fill=(255,255,255,50))
     hl = hl.filter(ImageFilter.GaussianBlur(6))
     layer = Image.alpha_composite(layer, hl)
 
-    # “slash” texture for High / Extreme
     if color == THREAT_COLORS[2] or color == THREAT_COLORS[3]:
         tx = Image.new("RGBA", (w, h), (0,0,0,0))
         dtx = ImageDraw.Draw(tx)
@@ -354,52 +342,9 @@ def _draw_segment_with_glow(base_img: Image.Image, rect: Tuple[int,int,int,int],
         tx = tx.filter(ImageFilter.GaussianBlur(1))
         layer = Image.alpha_composite(layer, tx)
 
-    # paste onto base
     base_img.paste(layer, (x1, y1), layer)
 
-def _draw_tiny_skull_with_crossbones(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 10,
-                                     color=(255,255,255,255)):
-    """
-    Vector ☠ (skull + crossbones) so it renders everywhere.
-    """
-    r = scale
-    # crossbones (two diagonals)
-    bone_w = max(2, r // 3)
-    bone_len = r * 2 + 6
-    # draw diagonal bones as thick lines
-    draw.line([(cx - bone_len//2, cy + r//2), (cx + bone_len//2, cy - r//2)], fill=color, width=bone_w)
-    draw.line([(cx - bone_len//2, cy - r//2), (cx + bone_len//2, cy + r//2)], fill=color, width=bone_w)
-
-    # skull head
-    left = cx - r
-    top  = cy - int(r*1.1)
-    right= cx + r
-    bot  = cy + r
-    draw.ellipse([left, top, right, bot], fill=color)
-    # eye sockets
-    eye_r = max(2, r//3)
-    ex1 = cx - r//2
-    ex2 = cx + r//2
-    ey  = cy - r//4
-    draw.ellipse([ex1-eye_r, ey-eye_r, ex1+eye_r, ey+eye_r], fill=(0,0,0,255))
-    draw.ellipse([ex2-eye_r, ey-eye_r, ex2+eye_r, ey+eye_r], fill=(0,0,0,255))
-    # jaw (rectangle)
-    jaw_h = max(2, r//2)
-    draw.rectangle([cx - r//2, cy + r//2, cx + r//2, cy + r//2 + jaw_h], fill=color)
-
-def _abbrev_label(lab: str) -> str:
-    mapping = {
-        "Laughably Low": "Low",
-        "Moderate": "Moderate",
-        "High": "High",
-        "Extreme": "Extreme",
-    }
-    return mapping.get(lab, lab)
-
 def _paste_skull_icon(img: Image.Image, cx: int, cy: int, size: int) -> bool:
-    """
-    Paste the skull PNG centered at (cx,cy). Returns True if pasted.
-    """
     if not os.path.exists(SKULL_ICON):
         return False
     try:
@@ -412,12 +357,7 @@ def _paste_skull_icon(img: Image.Image, cx: int, cy: int, size: int) -> bool:
     except Exception:
         return False
 
-
 def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
-    """
-    Draw a 4-section labeled meter. Lights all segments up to current level.
-    Skulls are drawn INSIDE the bar: 1 for High, 3 for Extreme.
-    """
     bar_h = 46
     seg_gap = 8
     seg_w = (width - seg_gap * 3) // 4
@@ -428,48 +368,47 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
     except ValueError:
         idx = 1
 
-    # draw segments
-    for i, label in enumerate(THREAT_LEVELS):
+    # segments
+    for i, _ in enumerate(THREAT_LEVELS):
         sx = x + i * (seg_w + seg_gap)
         rect = (sx, y, sx + seg_w, y + bar_h)
-        # inactive base
         draw.rounded_rectangle(rect, radius=8, fill=(40,40,40,255))
         if i <= idx:
             _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
 
-    # --- skull icons INSIDE the bar for High/Extreme (uses PNG asset) ---
+    # skulls inside bar
     cy = y + bar_h // 2
-    skull_px = max(16, int(bar_h * 0.55))  # scale nicely with bar height
+    skull_px = max(16, int(bar_h * 0.55))
 
-    # High → 1 skull centered in the High segment
-    if idx >= 2:
+    if idx >= 2:  # High: one skull in High segment
         sx = x + 2 * (seg_w + seg_gap)
         cx = sx + seg_w // 2
         if not _paste_skull_icon(img, cx, cy, skull_px):
-            # fallback: tiny vector skull if asset missing
-                _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
+            # graceful fallback – should not happen since SKULL_ICON exists
+            r = 8
+            draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255,255,255,255))
 
-    # Extreme → 3 skulls evenly spaced (with a faint red glow behind each)
-    if idx >= 3:
+    if idx >= 3:  # Extreme: three skulls with faint red glow
         sx = x + 3 * (seg_w + seg_gap)
-        centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4) // 5]
+        centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4)//5]
         for c in centers:
             glow = Image.new("RGBA", (skull_px+6, skull_px+6), (200, 0, 0, 110))
             glow = glow.filter(ImageFilter.GaussianBlur(6))
             img.paste(glow, (c - glow.size[0]//2, cy - glow.size[1]//2), glow)
-            if not _paste_skull_icon(img, c, cy, skull_px):
-                _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
+            _paste_skull_icon(img, c, cy, skull_px)
 
-
-    # labels under segments (auto-shrink/abbrev if needed)
+    # labels
     label_y = y + bar_h + 8
     base_size =  int(getattr(font, "size", 32))
     path_body =  getattr(font, "path", _resolve_font_path("DejaVuSans.ttf"))
+    def _abbrev(l):
+        return {"Laughably Low":"Low", "Moderate":"Moderate", "High":"High", "Extreme":"Extreme"}.get(l,l)
+
     for i, lab in enumerate(THREAT_LEVELS):
         text_to_use = lab
         tw = measure_line_width(font, lab)
         if tw > seg_w - 10:
-            text_to_use = _abbrev_label(lab)
+            text_to_use = _abbrev(lab)
             tw = measure_line_width(font, text_to_use)
         used_font = font
         if tw > seg_w - 10 and path_body:
@@ -492,21 +431,15 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
 
 def _measure_origin_with_dropcap(origin_text: str, body_font: ImageFont.FreeTypeFont,
                                  origin_wrap_w: int, line_gap: int, body_indent_px: int) -> Tuple[int, dict]:
-    """
-    Returns (measured_height, info) for origin with a drop cap.
-    info contains: drop_char, drop_w, drop_h, wrap_lines, lines (list), dropcap_size
-    """
     text = origin_text or ""
     if not text:
         return 0, {"lines": [], "drop_char": "", "drop_w": 0, "drop_h": 0, "wrap_lines": 0, "dropcap_size": 0}
 
-    # first visible char as drop cap
     stripped = text.lstrip()
     leading_ws = text[:len(text) - len(stripped)]
     drop_char = stripped[0]
     rest_text = leading_ws + stripped[1:]
 
-    # drop cap font sizing
     body_h = text_height(body_font)
     dropcap_size = int(body_h * 3.1)
     path_body = getattr(body_font, "path", _resolve_font_path("DejaVuSans.ttf"))
@@ -519,7 +452,6 @@ def _measure_origin_with_dropcap(origin_text: str, body_font: ImageFont.FreeType
 
     wrap_lines = max(2, min(3, (drop_h + line_gap) // (body_h + line_gap)))
 
-    # variable-width wrapping (first N lines wrap around drop cap)
     words = (rest_text or "").split()
     lines = []
     current = ""
@@ -547,16 +479,6 @@ def _measure_origin_with_dropcap(origin_text: str, body_font: ImageFont.FreeType
     }
 
 def create_villain_card(villain, image_file=None, theme_name="dark"):
-    """
-    Core polished card with:
-    - Adaptive two-line title (Name / aka)
-    - Larger portrait w/ soft white glow
-    - Consistent section spacing
-    - Threat Level moved to render last (above Origin) with labeled meter
-    - Catchphrase glow + red bullets for Crimes
-    - Divider + first-line indent for Origin
-    - Drop-cap Origin, dossier texture, footer with hashtag + QR
-    """
     theme = STYLE_THEMES.get(theme_name, STYLE_THEMES["dark"])
     bullet_color = (255, 75, 75, 255)  # blood-red bullets
 
@@ -597,10 +519,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         name_text, aka_text, title_font_base, subtitle_font_base, left_col_width
     )
 
-    # Accent color for catchphrase glow
+    # Accent glow for catchphrase
     accent_rgba = tuple(int(theme["accent"].lstrip("#")[i:i+2], 16) for i in (0,2,4)) + (140,)
 
-    # --- Measure sections (Threat Level LAST) ---
+    # Measure sections (Threat last)
     def measure_section(label: str, content: str, *, italic=False, bullets: Optional[List[str]] = None) -> int:
         h = text_height(section_font) + label_gap
         if bullets is not None:
@@ -619,8 +541,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     meta_height += measure_section("Catchphrase", catchphrase, italic=True)
     meta_height += measure_section("Crimes", "", bullets=crimes)
     meta_height += measure_section("Faction", faction)
-    # Reserve space for the labeled Threat Meter (label + bar + labels + gap)
-    meta_height += text_height(section_font) + label_gap + THREAT_METER_HEIGHT + section_gap
+    meta_height += text_height(section_font) + label_gap + THREAT_METER_HEIGHT + section_gap  # threat meter
 
     # Title block height
     title_h = 0
@@ -641,20 +562,20 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     origin_h, origin_info = _measure_origin_with_dropcap(origin_text, body_font, origin_wrap_w, line_gap, body_indent_px)
     origin_total_h = origin_label_h + origin_h + section_gap
 
-    # Total card height includes footer band so QR/hashtag never overlap Origin
+    # Total height includes footer band
     card_height = origin_start_y + origin_total_h + FOOTER_BAND_H + margin
 
-    # --- background: subtle dossier paper over deep black ---
-    image = Image.new("RGBA", (card_width, card_height), (8, 8, 8, 255))  # deep black base
+    # Background: dark + dossier overlay
+    image = Image.new("RGBA", (card_width, card_height), (8, 8, 8, 255))
     if os.path.exists(DOSSIER_TEXTURE):
         tex = Image.open(DOSSIER_TEXTURE).convert("RGBA")
         tex = ImageOps.fit(tex, (card_width, card_height))
-        alpha = Image.new("L", tex.size, 64)  # ≈25% opacity
+        alpha = Image.new("L", tex.size, 64)  # ~25%
         tex.putalpha(alpha)
         image.alpha_composite(tex)
     draw = ImageDraw.Draw(image)
 
-    # Portrait with soft white outer glow
+    # Portrait with glow
     def load_portrait(img_src):
         try:
             if img_src and hasattr(img_src, "read"):
@@ -706,7 +627,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         y += text_height(subtitle_font) + title_line_gap
     y += section_gap
 
-    # Sections (Threat Level meter drawn last)
+    # Left column sections
     left_x = margin
     left_y = y
     left_max_w = left_col_width
@@ -758,7 +679,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
 
         left_y += section_gap
 
-    # Draw in desired order (Threat Meter last among meta blocks):
+    # Order
     draw_section("Power", power)
     draw_section("Weakness", weakness)
     draw_section("Nemesis", nemesis)
@@ -767,11 +688,10 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw_section("Crimes", "", bullets=crimes)
     draw_section("Faction", faction)
 
-    # Threat Level (custom labeled meter)
+    # Threat Meter
     draw.text((left_x, left_y), "Threat Level:", font=section_font, fill=theme["text"])
     left_y += text_height(section_font) + label_gap
-    # Stretch to same right edge as Origin (start = margin+indent, width = origin_wrap_w)
-    meter_w = origin_wrap_w
+    meter_w = card_width - (margin * 2) - body_indent_px  # align to Origin width
     draw_threat_meter(image, draw, left_x + body_indent_px, left_y, meter_w, threat_level, body_font)
     left_y += THREAT_METER_HEIGHT + section_gap + 4
 
@@ -783,17 +703,17 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw.text((margin, y_origin), "Origin:", font=section_font, fill=theme["text"])
     y_origin += text_height(section_font) + label_gap
 
-    # Draw drop cap + wrapped lines
     body_h = text_height(body_font)
     path_body = getattr(body_font, "path", _resolve_font_path("DejaVuSans.ttf"))
     try:
         drop_font = ImageFont.truetype(path_body, origin_info["dropcap_size"])
     except Exception:
         drop_font = body_font
-    # drop cap
+
+    # drop cap (slight baseline lift so it aligns nicer with first line)
     if origin_info["drop_char"]:
         drop_x = margin + body_indent_px
-        drop_y = y_origin
+        drop_y = y_origin - int(body_h * 0.12)   # << baseline tweak
         draw.text((drop_x, drop_y), origin_info["drop_char"], font=drop_font, fill=theme["text"])
         drop_w = origin_info["drop_w"]
         wrap_lines = origin_info["wrap_lines"]
@@ -801,28 +721,22 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         drop_w = 0
         wrap_lines = 0
 
-    # draw wrapped lines with variable indent for first wrap_lines
+    # wrapped lines (first N lines wrap around the dropcap)
     line_idx = 0
     for ln in origin_info["lines"]:
-        if line_idx < wrap_lines:
-            x_text = margin + body_indent_px + drop_w + 12
-        else:
-            x_text = margin + body_indent_px
+        x_text = margin + body_indent_px + (drop_w + 12 if line_idx < wrap_lines else 0)
         draw.text((x_text, y_origin), ln, font=body_font, fill=theme["text"])
         y_origin += body_h + line_gap
         line_idx += 1
 
-    # --- Footer band: hashtag (left) + QR (right) ---
+    # Footer: hashtag left, QR right (always on its own band)
     footer_y = y_origin + 8
-    # optional faint separator
     draw.line([(margin, footer_y), (card_width - margin, footer_y)], fill=(255,255,255,40), width=1)
     footer_y += 10
 
-    # Hashtag bottom-left
     ht = text_height(body_font)
     draw.text((margin, footer_y + (FOOTER_BAND_H - ht)//2), HASHTAG_TEXT, font=body_font, fill=(235,235,235,255))
 
-    # QR bottom-right
     if os.path.exists(QR_STAMP):
         try:
             qr = Image.open(QR_STAMP).convert("RGBA")
@@ -830,7 +744,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
             qr_x = card_width - margin - QR_SIZE
             qr_y = footer_y + (FOOTER_BAND_H - QR_SIZE)//2
             image.paste(qr, (qr_x, qr_y), qr)
-        except Exception as _:
+        except Exception:
             pass
 
     # Border
