@@ -738,7 +738,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw_threat_meter(image, draw, left_x + body_indent_px, left_y, meter_w, threat_level, body_font)
     left_y += THREAT_METER_HEIGHT + section_gap + 4
 
-    # Divider + Origin (with drop cap)
+    # Divider + Origin (normal text, no drop cap)
     y_origin = max(left_y, (margin + portrait_size[1]) + margin)
     divider_y = y_origin - int(section_gap * 0.5)
     draw.line([(margin, divider_y), (card_width - margin, divider_y)], fill=(255, 255, 255, 60), width=2)
@@ -746,23 +746,11 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     draw.text((margin, y_origin), "Origin:", font=section_font, fill=theme["text"])
     y_origin += text_height(section_font) + label_gap
 
-    body_h = text_height(body_font)
-    path_body = getattr(body_font, "path", _resolve_font_path("DejaVuSans.ttf"))
-    try:
-        drop_font = ImageFont.truetype(path_body, origin_info["dropcap_size"])
-    except Exception:
-        drop_font = body_font
-
-    # drop cap (slight baseline lift so it aligns nicer with first line)
-    if origin_info["drop_char"]:
-        drop_x = margin + body_indent_px
-        drop_y = y_origin - int(body_h * 0.12)   # << baseline tweak
-        draw.text((drop_x, drop_y), origin_info["drop_char"], font=drop_font, fill=theme["text"])
-        drop_w = origin_info["drop_w"]
-        wrap_lines = origin_info["wrap_lines"]
-    else:
-        drop_w = 0
-        wrap_lines = 0
+    # Just wrap/draw Origin normally
+    lines, _ = measure_paragraph_height(str(origin_text), body_font, card_width - (margin*2), line_gap)
+    for ln in lines:
+        draw.text((margin + body_indent_px, y_origin), ln, font=body_font, fill=theme["text"])
+        y_origin += text_height(body_font) + line_gap
 
     # wrapped lines (first N lines wrap around the dropcap)
     line_idx = 0
@@ -772,8 +760,8 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
         y_origin += body_h + line_gap
         line_idx += 1
 
-    # Footer: hashtag left, QR right (always on its own band)
-    footer_y = y_origin + 8
+    # Footer: hashtag left, QR right (pinned to bottom)
+    footer_y = card_height - FOOTER_BAND_H
     draw.line([(margin, footer_y), (card_width - margin, footer_y)], fill=(255,255,255,40), width=1)
     footer_y += 10
 
