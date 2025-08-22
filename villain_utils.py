@@ -39,8 +39,8 @@ QR_SIZE       = 88    # px
 FOOTER_PAD    = 24
 
 # Threat meter skull icon (your new one)
-SKULL_ICON    = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/skull_icon.png"
-SKULL_SIZE    = 22   # auto-scaled again by bar height
+SKULL_ICON = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/skull_icon.png"
+SKULL_SIZE = 22   # auto-scaled again by bar height
 
 # Portrait quality guidance
 QUALITY_HINT = (
@@ -290,11 +290,12 @@ def draw_glow_text(base_img: Image.Image, xy: Tuple[int, int], text: str, font: 
 
 THREAT_LEVELS = ["Laughably Low", "Moderate", "High", "Extreme"]
 THREAT_COLORS = [
-    (56, 200, 90, 255),    # Low
-    (255, 208, 0, 255),    # Moderate
-    (255, 140, 0, 255),    # High
-    (178, 0, 0, 255),      # Extreme (darker crimson)
+    (56, 200, 90, 255),     # Low
+    (255, 208, 0, 255),     # Moderate
+    (255, 140, 0, 255),     # High
+    (178, 0, 0, 255),       # Extreme (darker crimson)
 ]
+
 THREAT_METER_HEIGHT = 100  # bar + labels
 
 def _normalize_threat_name(name: str) -> str:
@@ -357,59 +358,85 @@ def _paste_skull_icon(img: Image.Image, cx: int, cy: int, size: int) -> bool:
     except Exception:
         return False
 
+def _draw_tiny_skull_with_crossbones(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: int = 9, color=(255,255,255,255)):
+    """
+    Minimal vector fallback so we never crash if the skull asset is missing.
+    Draws a tiny skull + crossed lines. Kept very small and soft.
+    """
+    s  = scale
+    x0 = cx - s
+    y0 = cy - s
+    x1 = cx + s
+    y1 = cy + s
+
+    # crossed bones
+    draw.line([(x0, y0), (x1, y1)], fill=color, width=2)
+    draw.line([(x0, y1), (x1, y0)], fill=color, width=2)
+
+    # skull-ish circle
+    draw.ellipse([(cx - s//2, cy - s//2), (cx + s//2, cy + s//2)], outline=color, width=2)
+
+    # eyes
+    ex = max(1, s//6)
+    draw.ellipse([(cx - s//4 - ex, cy - ex), (cx - s//4 + ex, cy + ex)], fill=color)
+    draw.ellipse([(cx + s//4 - ex, cy - ex), (cx + s//4 + ex, cy + ex)], fill=color)
+
+    # hint of teeth
+    draw.line([(cx - s//6, cy + s//4), (cx + s//6, cy + s//4)], fill=color, width=2)
+
+
 def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
-    bar_h = 46
+    """
+    Draw a 4-section labeled meter. Lights all segments up to current level.
+    Skulls are drawn INSIDE the bar: 1 for High, 3 for Extreme (using skull_icon.png).
+    """
+    bar_h   = 46
     seg_gap = 8
-    seg_w = (width - seg_gap * 3) // 4
+    seg_w   = (width - seg_gap * 3) // 4
 
     level = _normalize_threat_name(level_name)
     try:
         idx = THREAT_LEVELS.index(level)
     except ValueError:
-        idx = 1
+        idx = 1  # default Moderate
 
-    # segments
     for i, _ in enumerate(THREAT_LEVELS):
         sx = x + i * (seg_w + seg_gap)
         rect = (sx, y, sx + seg_w, y + bar_h)
-        draw.rounded_rectangle(rect, radius=8, fill=(40,40,40,255))
+        draw.rounded_rectangle(rect, radius=8, fill=(40, 40, 40, 255))
         if i <= idx:
             _draw_segment_with_glow(img, rect, THREAT_COLORS[i])
 
-    # skulls inside bar
-    cy = y + bar_h // 2
+    cy       = y + bar_h // 2
     skull_px = max(16, int(bar_h * 0.55))
 
-    if idx >= 2:  # High: one skull in High segment
+    if idx >= 2:  # High+
         sx = x + 2 * (seg_w + seg_gap)
         cx = sx + seg_w // 2
         if not _paste_skull_icon(img, cx, cy, skull_px):
-            # graceful fallback – should not happen since SKULL_ICON exists
-            r = 8
-            draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(255,255,255,255))
+            _draw_tiny_skull_with_crossbones(draw, cx, cy, scale=9, color=(255,255,255,255))
 
-    if idx >= 3:  # Extreme: three skulls with faint red glow
+    if idx >= 3:  # Extreme
         sx = x + 3 * (seg_w + seg_gap)
-        centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4)//5]
+        centers = [sx + seg_w // 5, sx + seg_w // 2, sx + (seg_w * 4) // 5]
         for c in centers:
             glow = Image.new("RGBA", (skull_px+6, skull_px+6), (200, 0, 0, 110))
             glow = glow.filter(ImageFilter.GaussianBlur(6))
             img.paste(glow, (c - glow.size[0]//2, cy - glow.size[1]//2), glow)
-            _paste_skull_icon(img, c, cy, skull_px)
+            if not _paste_skull_icon(img, c, cy, skull_px):
+                _draw_tiny_skull_with_crossbones(draw, c, cy, scale=9, color=(255,255,255,255))
 
-    # labels
-    label_y = y + bar_h + 8
-    base_size =  int(getattr(font, "size", 32))
-    path_body =  getattr(font, "path", _resolve_font_path("DejaVuSans.ttf"))
-    def _abbrev(l):
-        return {"Laughably Low":"Low", "Moderate":"Moderate", "High":"High", "Extreme":"Extreme"}.get(l,l)
+    label_y   = y + bar_h + 8
+    base_size = int(getattr(font, "size", 32))
+    path_body = getattr(font, "path", _resolve_font_path("DejaVuSans.ttf"))
 
     for i, lab in enumerate(THREAT_LEVELS):
-        text_to_use = lab
-        tw = measure_line_width(font, lab)
+        text = lab
+        tw   = measure_line_width(font, text)
         if tw > seg_w - 10:
-            text_to_use = _abbrev(lab)
-            tw = measure_line_width(font, text_to_use)
+            text = {"Laughably Low": "Low"}.get(lab, lab)
+            tw   = measure_line_width(font, text)
+
         used_font = font
         if tw > seg_w - 10 and path_body:
             size = base_size
@@ -418,16 +445,42 @@ def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: in
                     f2 = ImageFont.truetype(path_body, size)
                 except Exception:
                     break
-                if measure_line_width(f2, text_to_use) <= seg_w - 10:
+                if measure_line_width(f2, text) <= seg_w - 10:
                     used_font = f2
                     break
                 size -= 2
-        sx = x + i * (seg_w + seg_gap) + seg_w // 2
+
+        sx  = x + i * (seg_w + seg_gap) + seg_w // 2
         col = (230,230,230,255) if i <= idx else (160,160,160,255)
-        tw = measure_line_width(used_font, text_to_use)
-        draw.text((sx - tw // 2, label_y), text_to_use, font=used_font, fill=col)
+        tw  = measure_line_width(used_font, text)
+        draw.text((sx - tw // 2, label_y), text, font=used_font, fill=col)
 
 # ===================== CARD BUILDER =====================
+
+def _draw_footer_branding(img: Image.Image, draw: ImageDraw.ImageDraw, body_font: ImageFont.FreeTypeFont):
+    """Bottom-left hashtag + bottom-right QR (if present)."""
+    w, h = img.size
+
+    # Hashtag (bottom-left)
+    small_font = body_font
+    try:
+        # ensure it's not huge
+        path_body = getattr(body_font, "path", _resolve_font_path("DejaVuSans.ttf"))
+        small_font = ImageFont.truetype(path_body, max(22, min(28, getattr(body_font, "size", 34))))
+    except Exception:
+        pass
+
+    ht = text_height(small_font)
+    draw.text((FOOTER_PAD, h - FOOTER_PAD - ht), HASHTAG_TEXT, font=small_font, fill=(200,200,200,255))
+
+    # QR (bottom-right)
+    if os.path.exists(QR_STAMP):
+        try:
+            qr = Image.open(QR_STAMP).convert("RGBA").resize((QR_SIZE, QR_SIZE), Image.LANCZOS)
+            img.paste(qr, (w - FOOTER_PAD - QR_SIZE, h - FOOTER_PAD - QR_SIZE), qr)
+        except Exception:
+            pass
+
 
 def _measure_origin_with_dropcap(origin_text: str, body_font: ImageFont.FreeTypeFont,
                                  origin_wrap_w: int, line_gap: int, body_indent_px: int) -> Tuple[int, dict]:
@@ -562,7 +615,7 @@ def create_villain_card(villain, image_file=None, theme_name="dark"):
     origin_h, origin_info = _measure_origin_with_dropcap(origin_text, body_font, origin_wrap_w, line_gap, body_indent_px)
     origin_total_h = origin_label_h + origin_h + section_gap
 
-    # Total height includes footer band
+    # Total height includes footer band so nothing overlaps the QR/hashtag
     card_height = origin_start_y + origin_total_h + FOOTER_BAND_H + margin
 
     # Background: dark + dossier overlay
