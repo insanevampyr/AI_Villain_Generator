@@ -688,7 +688,8 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     If ai_name_hint is provided and valid, it will be used (and registered).
     """
     gender = (gender).strip().lower()
-    pool_key = gender if gender in ("male", "female")
+    pool_key = gender if gender in ("male", "female") else random.choice(["male", "female"])
+
 
     # If the model suggested a name, normalize and use it when possible.
     raw = (ai_name_hint or "").strip()

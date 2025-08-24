@@ -773,8 +773,6 @@ def generate_visual_prompt(villain):
         gender_phrase = "feminine, graceful energy"
     elif "male" in gender_hint:
         gender_phrase = "masculine, powerful energy"
-    elif "nonbinary" in gender_hint or "androgynous" in gender_hint:
-        gender_phrase = "androgynous presence"
     else:
         gender_phrase = "mysterious energy"
 
@@ -882,8 +880,6 @@ def generate_ai_portrait(villain):
             gender_phrase = "feminine"
         elif "male" in gender_hint:
             gender_phrase = "masculine"
-        elif "nonbinary" in gender_hint or "androgynous" in gender_hint:
-            gender_phrase = "androgynous"
         else:
             gender_phrase = "mysterious"
 
