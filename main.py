@@ -739,8 +739,11 @@ if st.session_state.villain:
 # --- Feedback (bottom, collapsed) ---
 st.markdown("---")
 with st.expander("💬 Send us Feedback", expanded=False):
-    components.iframe("https://tally.so/r/3yae6p", height=700)
-
+    components.iframe(
+        "https://tally.so/r/3yae6p?transparentBackground=1",
+        height=1400,
+        scrolling=True
+    )
 
 
 # Dev debug panel (only for dev key holders)
