@@ -8,6 +8,8 @@ from email.mime.text import MIMEText
 from urllib.parse import urlencode
 import time, streamlit as st
 import time
+from streamlit import components
+
 # Rotate cache-buster hourly so static chunks refresh without hard reloads
 try:
     st.query_params["cb"] = str(int(time.time() // 3600))
@@ -250,6 +252,16 @@ def _clear_background_after_login():
         unsafe_allow_html=True,
     )
 
+# If not signed in yet, show OTP panel and stop
+if not st.session_state.otp_verified:
+    ui_otp_panel()
+    st.stop()
+
+# From here on, the user is verified
+_clear_background_after_login()
+
+
+
 def focus_input(label_text: str):
     # Focus an input by its aria-label (Streamlit uses label text)
     st_html(
@@ -460,6 +472,8 @@ def ui_otp_panel():
                     st.error(msg or "Verification failed.")
 
 
+
+
 # If not signed in yet, show OTP panel and stop
 if not st.session_state.otp_verified:
     ui_otp_panel()
@@ -532,6 +546,10 @@ title_text = "🌙 AI Villain Generator"
 if is_dev:
     title_text += " ⚡"
 st.title(title_text)
+
+# --- Feedback Form Button ---
+with st.expander("💬 Send us Feedback"):
+    components.iframe("https://tally.so/r/3yae6p", height=700)
 
 thanks_for_support_if_any()
 
