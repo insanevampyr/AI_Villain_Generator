@@ -197,16 +197,6 @@ def _clear_background_after_login():
         unsafe_allow_html=True,
     )
 
-# If not signed in yet, show OTP panel and stop
-if not st.session_state.otp_verified:
-    ui_otp_panel()
-    st.stop()
-
-# From here on, the user is verified
-_clear_background_after_login()
-
-
-
 def focus_input(label_text: str):
     # Focus an input by its aria-label (Streamlit uses label text)
     st_html(
