@@ -739,26 +739,39 @@ if st.session_state.villain:
 # --- Feedback (bottom, collapsed) ---
 st.markdown("---")
 with st.expander("💬 Send us Feedback", expanded=False):
+    # Tally embed with auto-resize via their widget script + scroll fallback
     st_html(
         """
-        <iframe id="tally-iframe"
-                src="https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
-                width="100%"
-                style="border:none;min-height:500px;overflow:hidden;"
-                frameborder="0"
-                marginheight="0"
-                marginwidth="0"
-                scrolling="no"></iframe>
+        <div class="tally-embed"
+             data-tally-src="https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
+             style="width:100%;min-height:520px"></div>
+
         <script>
-          window.addEventListener("message", function(event) {
-            if (event.data?.type === "tally-resize" && event.data?.height) {
-              const iframe = document.getElementById("tally-iframe");
-              if (iframe) iframe.style.height = event.data.height + "px";
-            }
-          });
+          (function() {
+            // Load Tally's embed helper (once) and initialize
+            var d = document, s, w = "https://tally.so/widgets/embed.js";
+            function v(){ if("Tally" in window){ Tally.loadEmbeds(); } }
+            if (!d.querySelector('script[src="'+w+'"]')) {
+              s = d.createElement("script"); s.src = w; s.onload = v; d.body.appendChild(s);
+            } else { v(); }
+
+            // Safety: if auto-resize doesn't fire (rare), allow scrolling
+            setTimeout(function(){
+              var el = d.querySelector(".tally-embed iframe");
+              if (el && !el.style.height) {
+                el.style.minHeight = "900px";
+                el.setAttribute("scrolling","yes");
+              }
+            }, 1500);
+          })();
         </script>
+
+        <style>
+          /* Make sure Streamlit doesn't clip the iframe inside the expander */
+          .element-container iframe { display:block; }
+        </style>
         """,
-        height=800,
+        height=600,  # initial viewport; Tally script will grow it as needed
     )
 
 
