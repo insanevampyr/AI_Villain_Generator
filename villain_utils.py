@@ -375,7 +375,6 @@ def _draw_tiny_skull_with_crossbones(draw: ImageDraw.ImageDraw, cx: int, cy: int
 def draw_threat_meter(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: int, width: int, level_name: str, font: ImageFont.FreeTypeFont):
     """
     Draw a 4-section labeled meter. Lights all segments up to current level.
-    Skulls are drawn INSIDE the bar: 1 for High, 3 for Extreme (using skull_icon.png).
     """
     # geometry
     bar_h   = 46
