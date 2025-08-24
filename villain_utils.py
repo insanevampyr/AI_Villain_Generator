@@ -46,7 +46,10 @@ SKULL_SIZE = 22   # auto-scaled again by bar height
 QUALITY_HINT = (
     "Cinematic bust portrait, 3/4 view, photorealistic skin texture, dramatic lighting, depth of field, "
     "rich background bokeh, intricate detail, volumetric light, high dynamic range. "
-    "NOT an icon, NOT a logo, NOT a sticker, NOT flat vector art, no text or signage."
+    "absolutely no words, no text, no typography, no letters, no numbers, "
+    "no captions, no subtitles, no watermarks, no signatures, no graffiti, "
+    "no posters, no billboards, no logos, no signage"
+    "NOT an icon, NOT a sticker, NOT flat vector art, no text or signage."
 )
 
 # Theme → visual style boosters
@@ -783,12 +786,16 @@ def generate_visual_prompt(villain):
 
     system_prompt = (
         "You are composing a PG-13-safe visual prompt for an image model. "
+        "You are a visual summarizer. Convert the villain's info into a vivid portrait prompt. "
+        "Imply gender with adjectives (masculine/feminine/androgynous) or visuals. "
         "Describe ONLY appearance: color, mood, style, pose, clothing, atmosphere. "
         "NEVER include names, logos, flags, words, numbers, posters, or text. "
         "Exclude gore, graphic violence, self-harm, sexualization, nudity, minors, and hate symbols. "
-        "Imply gender with adjectives (masculine/feminine/androgynous) or visuals. "
+        "Do NOT use or mention the villain’s actual name or alias. "
+        "ABSOLUTELY FORBID: names, words, text, letters, numbers, captions, subtitles, "
+        "signatures, logos, flags, watermarks, graffiti, posters, billboards, or signage."
         "Output 1–2 cinematic sentences max."
-    )
+        )
 
     user_prompt = (
         f"{gender_phrase}. {theme_line} "
