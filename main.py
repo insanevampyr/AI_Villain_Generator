@@ -482,10 +482,6 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
-# --- Feedback Form Button ---
-with st.expander("💬 Send us Feedback"):
-    components.iframe("https://tally.so/r/3yae6p", height=700)
-
 thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
@@ -739,6 +735,13 @@ if st.session_state.villain:
             st.success(f"Saved! Share link: {share_link}")
         except Exception as e:
             st.error(f"Save failed: {e}")
+
+# --- Feedback (bottom, collapsed) ---
+st.markdown("---")
+with st.expander("💬 Send us Feedback", expanded=False):
+    components.iframe("https://tally.so/r/3yae6p", height=700)
+
+
 
 # Dev debug panel (only for dev key holders)
 if st.session_state.get("dev_key_entered"):
