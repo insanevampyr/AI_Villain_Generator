@@ -739,10 +739,26 @@ if st.session_state.villain:
 # --- Feedback (bottom, collapsed) ---
 st.markdown("---")
 with st.expander("💬 Send us Feedback", expanded=False):
-    components.iframe(
-        "https://tally.so/r/3yae6p?transparentBackground=1",
-        height=1400,
-        scrolling=True
+    st_html(
+        """
+        <iframe id="tally-iframe"
+                src="https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
+                width="100%"
+                style="border:none;min-height:500px;overflow:hidden;"
+                frameborder="0"
+                marginheight="0"
+                marginwidth="0"
+                scrolling="no"></iframe>
+        <script>
+          window.addEventListener("message", function(event) {
+            if (event.data?.type === "tally-resize" && event.data?.height) {
+              const iframe = document.getElementById("tally-iframe");
+              if (iframe) iframe.style.height = event.data.height + "px";
+            }
+          });
+        </script>
+        """,
+        height=800,
     )
 
 
