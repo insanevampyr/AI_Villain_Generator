@@ -8,8 +8,26 @@ import base64
 import io
 import re
 from typing import List, Tuple, Optional
-
 from optimization_utils import hash_villain, set_debug_info, dalle_price
+
+try:
+    import pytesseract
+    _HAS_OCR = True
+except Exception:
+    _HAS_OCR = False
+
+def _contains_text(png_bytes: bytes) -> bool:
+    """Detect if an image has visible text (requires pytesseract)."""
+    if not _HAS_OCR:
+        return False
+    try:
+        with Image.open(io.BytesIO(png_bytes)) as im:
+            im = im.convert("L")  # grayscale
+            txt = pytesseract.image_to_string(im, config="--psm 6")
+            return bool(re.search(r"[A-Za-z0-9]{4,}", txt))
+    except Exception:
+        return False
+
 
 # === Constants ===
 STYLE_THEMES = {
@@ -48,22 +66,24 @@ QUALITY_HINT = (
     "depth of field, rich background bokeh, intricate detail, volumetric light, high dynamic range. "
     "absolutely no words, no text, no typography, no letters, no numbers, "
     "no captions, no subtitles, no watermarks, no signatures, no graffiti, "
-    "no posters, no billboards, no logos, no signage; "
+    "no posters, no billboards, no logos, no signage, no diagrams, no labels, no UI, no HUD, no interface overlays; "
     "NOT an icon, NOT a sticker, NOT flat vector art"
 )
+
 
 
 # Theme → visual style boosters
 THEME_VISUALS = {
     "funny": "bright, comedic composition, exaggerated expressions, whimsical props, saturated but balanced colors",
-    "satirical": "playful yet sharp composition, clever visual irony, poster-like framing without text",
+    "satirical": "playful yet sharp composition, clever visual irony, illustrative vibe (no posters, no text blocks)",
     "dark": "low-key lighting, chiaroscuro, cold palette, occult hints, oppressive atmosphere",
     "epic": "grand scale, celestial glow, ethereal atmosphere, ultra-detailed, sweeping cinematic lighting",
     "mythic": "ancient textures, carved stone, sacred motifs, weathered materials, natural backdrops",
-    "sci-fi": "clean industrial design, emissive panels, precise geometry, cool palette, subtle chromatic aberration",
-    "cyberpunk": "neon grime, rain-slick surfaces, retro-futurist shapes, moody backlight, holographic haze",
-    "chaotic": "glitch motifs, motion blur, double exposure, probabilistic artifacts, unexpected overlays",
+    "sci-fi": "clean industrial design, emissive materials, precise geometry, cool palette (no control panels, no monitors)",
+    "cyberpunk": "neon grime, rain-slick surfaces, retro-futurist color haze and rimlight (no holograms, no signage, no billboards)",
+    "chaotic": "motion blur, double exposure, textured light leaks (no glitch text, no UI elements)",
 }
+
 
 # === Logging ===
 def save_villain_to_log(villain):
@@ -786,17 +806,13 @@ def generate_visual_prompt(villain):
     power_s  = sanitize_for_images(villain.get("power", ""))
 
     system_prompt = (
-        "You are composing a PG-13-safe visual prompt for an image model. "
-        "You are a visual summarizer. Convert the villain's info into a vivid portrait prompt. "
-        "Imply gender with adjectives (masculine/feminine/androgynous) or visuals. "
-        "Describe ONLY appearance: color, mood, style, pose, clothing, atmosphere. "
-        "NEVER include names, logos, flags, words, numbers, posters, or text. "
-        "Exclude gore, graphic violence, self-harm, sexualization, nudity, minors, and hate symbols. "
-        "Do NOT use or mention the villain’s actual name or alias. "
-        "ABSOLUTELY FORBID: names, words, text, letters, numbers, captions, subtitles, "
-        "signatures, logos, flags, watermarks, graffiti, posters, billboards, or signage."
-        "Output 1–2 cinematic sentences max."
-        )
+        "You compose PG-13-safe visual prompts for an image model. Output 1–2 cinematic sentences, appearance only. "
+        "Imply gender with visual adjectives. Do NOT include any words or writing of any kind: no text, no typography, "
+        "no letters, no numbers, no captions, no subtitles, no posters, no billboards, no signage, no logos, no UI. "
+        "Absolutely forbid any written words from appearing in the image—even if they appear in this prompt. "
+        "If a style like glitch/cyberpunk/poster would suggest UI, labels, displays or screens, reinterpret it purely "
+        "as lighting, texture, color, or atmosphere; omit panels, monitors, interfaces, graffiti, labels, or signage."
+    )
 
     user_prompt = (
         f"{gender_phrase}. {theme_line} "
@@ -822,8 +838,8 @@ def generate_visual_prompt(villain):
     except Exception as e:
         print(f"[Error generating visual prompt]: {e}")
         fallback = (
-            "Cinematic PG-13 villain portrait, 3/4 bust, dramatic lighting, detailed clothing and atmosphere, "
-            "no text, no logos, no flags, no gore, no sexualization, no minors."
+            "Cinematic PG-13 villain portrait, 3/4 bust, dramatic lighting, detailed clothing and atmosphere; "
+            "no words or writing of any kind (no text, letters, numbers, captions, subtitles, posters, signage, logos)."
         )
         st.session_state["visual_prompt"] = fallback
         return fallback
@@ -843,10 +859,11 @@ def _gen_once(client: OpenAI, prompt: str, allow_style: bool = True):
         n=1,
         size="1024x1024",
         response_format="b64_json",
+        style="natural",   # ← use natural to reduce graphic-design artifacts
     )
-    if allow_style:
-        kwargs["style"] = "vivid"
+    # (If you want to sometimes try vivid, keep the arg but default is now natural.)
     return client.images.generate(**kwargs)
+
 
 def _safe_placeholder(out_path: str) -> str:
     try:
@@ -872,14 +889,35 @@ def generate_ai_portrait(villain):
 
     image_calls = 0
     try:
+        # First attempt
         resp = _gen_once(client, final_prompt, allow_style=True)
         image_calls += 1
         b64 = resp.data[0].b64_json
         png_bytes = _decode_and_check_png(b64)
+
+        # Optional OCR reroll once if text is detected (only runs if pytesseract + Tesseract exist)
+        try:
+            has_words = _contains_text(png_bytes)
+        except Exception:
+            has_words = False  # silently skip OCR if OCR tool isn't available
+
+        if has_words:
+            # Make the background plainer to avoid accidental labels/signs
+            reroll_prompt = (
+                final_prompt
+                + " Plain, uncluttered background; no screens, no panels, no posters, no signs or signage."
+            )
+            resp2 = _gen_once(client, reroll_prompt, allow_style=False)
+            image_calls += 1
+            b64 = resp2.data[0].b64_json
+            png_bytes = _decode_and_check_png(b64)
+
         with open(img_path, "wb") as f:
             f.write(png_bytes)
+
         set_debug_info(context="DALL·E Image", prompt=final_prompt, cost_only=True, image_count=image_calls)
         return img_path
+
     except Exception as e1:
         print(f"[Image attempt 1 failed, retrying safe fallback] {e1}")
         safe_theme = safe_theme_line(villain)
@@ -894,7 +932,7 @@ def generate_ai_portrait(villain):
         fallback_prompt = (
             f"PG-13 safe villain portrait, {gender_phrase} energy. {safe_theme} "
             "3/4 bust, dramatic cinematic lighting, detailed clothing, atmospheric background; "
-            "no text, no logos, no flags, no gore, no sexualization, no minors. "
+            "no words or writing of any kind (no text, letters, numbers, captions, posters, signage, logos). "
             f"{QUALITY_HINT}"
         )
         try:
@@ -910,10 +948,11 @@ def generate_ai_portrait(villain):
             print(f"[Image attempt 2 failed; using placeholder] {e2}")
             placeholder = _safe_placeholder(img_path)
             try:
-                set_debug_info(context="DALL·E Image (placeholder)", prompt="(placeholder due to safety)", cost_only=True, image_count=image_calls or 1)
+                set_debug_info(context="DALL·E Image (placeholder due to safety)", cost_only=True, image_count=image_calls or 1)
             except Exception:
                 pass
             return placeholder
+
 
 __all__ = [
     "create_villain_card",
