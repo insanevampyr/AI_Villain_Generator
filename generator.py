@@ -102,7 +102,6 @@ def _ensure_bags():
         st.session_state.name_bags = {
             "male": ShuffleBag(MALE_NAMES),
             "female": ShuffleBag(FEMALE_NAMES),
-            "nonbinary": ShuffleBag(NEUTRAL_NAMES),
             "last": ShuffleBag(LAST_NAMES),
         }
     if "name_cooldown" not in st.session_state:
@@ -688,8 +687,8 @@ def select_real_name(gender: str, ai_name_hint: Optional[str] = None) -> str:
     Picks a real name while enforcing daily uniqueness across app restarts.
     If ai_name_hint is provided and valid, it will be used (and registered).
     """
-    gender = (gender or "nonbinary").strip().lower()
-    pool_key = gender if gender in ("male", "female", "nonbinary") else "nonbinary"
+    gender = (gender).strip().lower()
+    pool_key = gender if gender in ("male", "female")
 
     # If the model suggested a name, normalize and use it when possible.
     raw = (ai_name_hint or "").strip()
@@ -770,10 +769,10 @@ EXAMPLE CRIMES (inspiration only): {ex_line}
 
 Rules:
 - Invent 3–5 unique, power-specific crimes. No duplicates. No generic phrasing.
-- Vary targets (people, finance, transit, comms, landmarks). Keep each crime 5–12 words.
+- Vary targets (people, finance, transit, comms, landmarks, government facilities). Keep each crime 5–12 words.
 - Do NOT reuse the example crimes verbatim; remix or escalate to suit the power.
 - Real name is modern FIRST + LAST only (no titles), unrelated to power.
-- Gender ∈ ["male","female","nonbinary"]; if unsure, pick one.
+- Gender ∈ ["male","female"]; if unsure, pick one.
 - Alias creative and distinct from real name; avoid overused 'dark'/'shadow' unless theme demands it.
 - Keep JSON valid and compact. No comments.
 
@@ -798,8 +797,9 @@ gender, name, alias, weakness, nemesis, lair, catchphrase, faction, crimes
 
     # gender
     gender = (data.get("gender") or "").lower().strip()
-    if gender not in {"male", "female", "nonbinary"}:
-        gender = "nonbinary"
+    if gender not in {"male", "female"}:
+        gender = random.choice(["male", "female"])
+
 
     # names
     _ensure_bags()
