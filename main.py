@@ -8,7 +8,8 @@ from email.mime.text import MIMEText
 from urllib.parse import urlencode
 import time, streamlit as st
 import time
-from streamlit import components
+import streamlit.components.v1 as components
+
 
 # Rotate cache-buster hourly so static chunks refresh without hard reloads
 try:
