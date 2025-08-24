@@ -44,13 +44,14 @@ SKULL_SIZE = 22   # auto-scaled again by bar height
 
 # Portrait quality guidance
 QUALITY_HINT = (
-    "Cinematic bust portrait, 3/4 view, photorealistic skin texture, dramatic lighting, depth of field, "
-    "rich background bokeh, intricate detail, volumetric light, high dynamic range. "
+    "Cinematic bust portrait, 3/4 view, photorealistic skin texture, dramatic lighting, "
+    "depth of field, rich background bokeh, intricate detail, volumetric light, high dynamic range. "
     "absolutely no words, no text, no typography, no letters, no numbers, "
     "no captions, no subtitles, no watermarks, no signatures, no graffiti, "
-    "no posters, no billboards, no logos, no signage"
-    "NOT an icon, NOT a sticker, NOT flat vector art, no text or signage."
+    "no posters, no billboards, no logos, no signage; "
+    "NOT an icon, NOT a sticker, NOT flat vector art"
 )
+
 
 # Theme → visual style boosters
 THEME_VISUALS = {
