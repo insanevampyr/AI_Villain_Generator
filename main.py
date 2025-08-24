@@ -739,7 +739,11 @@ if st.session_state.villain:
 # --- Feedback (bottom, collapsed) ---
 st.markdown("---")
 with st.expander("💬 Send us Feedback", expanded=False):
-    components.iframe("https://tally.so/r/3yae6p", height=700)
+    components.iframe(
+        "https://tally.so/r/3yae6p?transparentBackground=1",
+        height=1400,          # plenty tall so the final Submit is visible
+        scrolling=True        # lets the iframe scroll if Tally grows
+    )
 
 
 
