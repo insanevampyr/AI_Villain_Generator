@@ -736,6 +736,11 @@ if st.session_state.villain:
         except Exception as e:
             st.error(f"Save failed: {e}")
 
+
+
+
+
+st.markdown("---")
 # --- FAQ (above feedback) ---
 with st.expander("❓ FAQ", expanded=False):
     st.markdown("**What is this?**  \nA tool that makes unique villains with names, powers, crimes, origins, and portraits.")
@@ -748,13 +753,10 @@ with st.expander("❓ FAQ", expanded=False):
     st.markdown("**What if the AI makes something weird?**  \nHit regenerate — weird can be great.")
     st.markdown("**Will it make heroes too?**  \nNot yet. Hero mode is on the roadmap.")
     st.markdown("**Can I suggest features?**  \nYes. We welcome feedback and ideas.")
-
-
-# --- Feedback (bottom, collapsed) ---
-st.markdown("---")
 with st.expander("💬 Send us Feedback", expanded=False):
     embed_url = "https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
-
+    
+# --- Feedback (bottom, collapsed) ---
     # 1) Plain iframe (robust) — allows scrolling so long forms work
     components.iframe(embed_url, height=1100, scrolling=True)
 
