@@ -784,8 +784,41 @@ ig_icon = _img_to_base64("assets/social/instagram.png")
 rd_icon = _img_to_base64("assets/social/reddit.png")
 fb_icon = _img_to_base64("assets/social/facebook.png")
 
+
 st.markdown(
     f"""
+    <style>
+      .socials-wrap {{
+        margin-top: 18px; padding: 18px 0 6px;
+        border-top: 1px solid #2a2a2a;
+      }}
+      .socials-title {{
+        text-align:center; font-weight:700; letter-spacing:0.3px;
+        color:#eaeaea; margin-bottom: 10px;
+      }}
+      .socials-row {{
+        display:flex; justify-content:center; align-items:center; gap:22px;
+      }}
+      .socials-row a {{
+        display:inline-flex; align-items:center; justify-content:center;
+        width:48px; height:48px; border-radius:12px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+        border: 1px solid #333; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+      }}
+      .socials-row a:hover {{
+        transform: translateY(-2px) scale(1.08);
+        border-color:#555; box-shadow:0 10px 26px rgba(0,0,0,0.5);
+      }}
+      .socials-row img {{
+        width:28px; height:28px; object-fit:contain;
+      }}
+      @media (max-width: 520px){{
+        .socials-row {{ gap:16px; }}
+        .socials-row a {{ width:44px; height:44px; border-radius:10px; }}
+        .socials-row img {{ width:24px; height:24px; }}
+      }}
+    </style>
     <div class="socials-wrap">
       <div class="socials-title">Follow us</div>
       <div class="socials-row">
@@ -806,8 +839,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
-
 
 # Dev debug panel (only for dev key holders)
 if st.session_state.get("dev_key_entered"):
