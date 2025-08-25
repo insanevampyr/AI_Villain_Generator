@@ -736,6 +736,20 @@ if st.session_state.villain:
         except Exception as e:
             st.error(f"Save failed: {e}")
 
+# --- FAQ (above feedback) ---
+with st.expander("❓ FAQ", expanded=False):
+    st.markdown("**What is this?**  \nA tool that makes unique villains with names, powers, crimes, origins, and portraits.")
+    st.markdown("**How does it work?**  \nAI creates text + optional portraits. You can download them as villain cards.")
+    st.markdown("**Is it random?**  \nYes. Every villain is different, with extra variety to reduce repeats.")
+    st.markdown("**Can I pick the style?**  \nYep — choose a theme (dark, funny, tragic, sci-fi, etc.) before generating.")
+    st.markdown("**Do I need to pay?**  \nText villains are free. AI portraits: 1 free + extra with supporter credits.")
+    st.markdown("**Can I use villains in my stories/games?**  \nYes. Use them for fun, writing, or RPGs.")
+    st.markdown("**How do I save them?**  \nClick Download to get a clean villain card with portrait + info.")
+    st.markdown("**What if the AI makes something weird?**  \nHit regenerate — weird can be great.")
+    st.markdown("**Will it make heroes too?**  \nNot yet. Hero mode is on the roadmap.")
+    st.markdown("**Can I suggest features?**  \nYes. We welcome feedback and ideas.")
+
+
 # --- Feedback (bottom, collapsed) ---
 st.markdown("---")
 with st.expander("💬 Send us Feedback", expanded=False):
