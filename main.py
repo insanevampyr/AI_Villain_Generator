@@ -769,59 +769,44 @@ with st.expander("💬 Send us Feedback", expanded=False):
         unsafe_allow_html=True,
     )
 
+def _img_to_base64(path):
+    import base64
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception:
+        return ""
+
+
 # --- Socials Footer (very bottom) ---
+x_icon = _img_to_base64("assets/social/x.png")
+ig_icon = _img_to_base64("assets/social/instagram.png")
+rd_icon = _img_to_base64("assets/social/reddit.png")
+fb_icon = _img_to_base64("assets/social/facebook.png")
+
 st.markdown(
-    """
-    <style>
-      .socials-wrap{
-        margin-top: 18px; padding: 18px 0 6px;
-        border-top: 1px solid #2a2a2a;
-      }
-      .socials-title{
-        text-align:center; font-weight:700; letter-spacing:0.3px;
-        color:#eaeaea; margin-bottom: 10px;
-      }
-      .socials-row{
-        display:flex; justify-content:center; align-items:center; gap:22px;
-      }
-      .socials-row a{
-        display:inline-flex; align-items:center; justify-content:center;
-        width:48px; height:48px; border-radius:12px;
-        background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
-        border: 1px solid #333; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-      }
-      .socials-row a:hover{
-        transform: translateY(-2px) scale(1.03);
-        border-color:#444; box-shadow:0 10px 26px rgba(0,0,0,0.45);
-      }
-      .socials-row img{ width:24px; height:24px; }
-      @media (max-width: 520px){
-        .socials-row{ gap:16px; }
-        .socials-row a{ width:44px; height:44px; border-radius:10px; }
-        .socials-row img{ width:22px; height:22px; }
-      }
-    </style>
+    f"""
     <div class="socials-wrap">
       <div class="socials-title">Follow us</div>
       <div class="socials-row">
         <a href="https://x.com/AI_Villains?t=7A4N3C6ONr1e4pxa81XZkA&s=09" target="_blank" title="Twitter / X">
-          <img src="assets/social/x.png" alt="X">
+          <img src="data:image/png;base64,{x_icon}" alt="X">
         </a>
         <a href="https://www.instagram.com/ai_villain_generator?igsh=MXdlenZ3dHk2Yjd6MA==" target="_blank" title="Instagram">
-          <img src="assets/social/instagram.png" alt="Instagram">
+          <img src="data:image/png;base64,{ig_icon}" alt="Instagram">
         </a>
         <a href="https://www.reddit.com/u/Ai_villain_gen/s/yGizM1bLU5" target="_blank" title="Reddit">
-          <img src="assets/social/reddit.png" alt="Reddit">
+          <img src="data:image/png;base64,{rd_icon}" alt="Reddit">
         </a>
         <a href="https://www.facebook.com/share/16v4KkLRTC/" target="_blank" title="Facebook">
-          <img src="assets/social/facebook.png" alt="Facebook">
+          <img src="data:image/png;base64,{fb_icon}" alt="Facebook">
         </a>
       </div>
     </div>
     """,
     unsafe_allow_html=True
 )
+
 
 
 # Dev debug panel (only for dev key holders)
