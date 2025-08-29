@@ -791,31 +791,6 @@ if st.session_state.villain:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# MOBILE: stacked (two full-width buttons)
-st.markdown('<div class="mobile-rerolls">', unsafe_allow_html=True)
-if st.button("🎲 Reroll Name", key="btn_reroll_name_mobile", use_container_width=True):
-    v = dict(st.session_state.villain)
-    new_name = select_real_name(v.get("gender", "unknown"))
-    v["name"] = new_name
-    v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
-    st.session_state.villain = v
-    st.rerun()
-
-if st.button("📝 Reroll Origin", key="btn_reroll_origin_mobile", use_container_width=True):
-    v = dict(st.session_state.villain)
-    v["origin"] = generate_origin(
-        theme=style,
-        power=v.get("power", ""),
-        crimes=v.get("crimes", []) or [],
-        alias=v.get("alias", ""),
-        real_name=v.get("name", "")
-    )
-    v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
-    st.session_state.villain = v
-    st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
-
-
 # If the user clicked the button, build the card, then auto-download via a data URL
 if st.session_state.get("trigger_card_dl"):
     import base64, re, os
