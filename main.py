@@ -609,12 +609,15 @@ if st.session_state.villain:
                     st.rerun()
 
     # Priority: fresh AI image → uploaded → default
+    is_default_image = False
     if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
         display_source = _image_bytes(st.session_state.ai_image)
     elif st.session_state.villain_image is not None:
         display_source = st.session_state.villain_image
     else:
         display_source = _image_bytes("assets/AI_Villain_logo.png")
+        is_default_image = True
+
 
     # text left, image right
     col_meta, col_img = st.columns([2, 3])
@@ -651,6 +654,42 @@ if st.session_state.villain:
                         key="btn_download_portrait_png",
                     )
                     st.caption(tip)
+                    # If showing the placeholder image, explain it
+                    if not st.session_state.ai_image and st.session_state.villain_image is None:
+                        st.info("This is the default placeholder image. You can upload your own above or generate one with AI.")
+
+                    # --- Action buttons under the portrait ---
+                    row_a, row_b = st.columns([1, 1])
+
+                    with row_a:
+                        if st.button("⬇️ Download Villain Card", key="btn_card_oneclick_top", use_container_width=True):
+                            st.session_state.trigger_card_dl = True
+                            st.rerun()
+
+                    with row_b:
+                        if st.button("💾 Save to My Villains", key="btn_save_villain_top", use_container_width=True):
+                            try:
+                                v = st.session_state.villain
+                                img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
+                                card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+
+                                rec_id = create_villain_record(
+                                    owner_email=norm_email,
+                                    villain_json=v,
+                                    style=style,
+                                    image_url=img_url,
+                                    card_url=card_url,
+                                    version=1,
+                                )
+                                token = ensure_share_token(rec_id)
+                                rec = get_villain(rec_id)
+                                fields = rec.get("fields", {}) if rec else {}
+                                public_url = fields.get("public_url", "")
+                                share_link = public_url or f"(share token: {token})"
+                                st.success(f"Saved! Share link: {share_link}")
+                            except Exception as e:
+                                st.error(f"Save failed: {e}")
+
             except Exception as e:
                 st.warning(f"Couldn’t offer portrait download: {e}")
         else:
@@ -703,14 +742,6 @@ with col_btn2:
         st.rerun()
 
 
-# --- One-click: Build card and download it immediately ---
-if st.session_state.villain:
-    col_card, _ = st.columns([1, 3])
-    with col_card:
-        if st.button("⬇️ Download Villain Card", key="btn_card_oneclick", use_container_width=True):
-            st.session_state.trigger_card_dl = True
-            st.rerun()
-
 # If the user clicked the button, build the card, then auto-download via a data URL
 if st.session_state.get("trigger_card_dl"):
     import base64, re, os
@@ -741,35 +772,6 @@ if st.session_state.get("trigger_card_dl"):
         # Reset the trigger so it only fires once per click
         st.session_state.trigger_card_dl = False
         st.session_state.card_file = None
-
-# --- Save to My Villains (Airtable) ---
-if st.session_state.villain:
-    if st.button("💾 Save to My Villains", key="btn_save_villain"):
-        try:
-            villain = st.session_state.villain
-            img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
-            card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
-
-            rec_id = create_villain_record(
-                owner_email=norm_email,
-                villain_json=villain,
-                style=style,
-                image_url=img_url,
-                card_url=card_url,
-                version=1,
-            )
-            token = ensure_share_token(rec_id)
-            rec = get_villain(rec_id)
-            fields = rec.get("fields", {}) if rec else {}
-            public_url = fields.get("public_url", "")
-            share_link = public_url or f"(share token: {token})"
-            st.success(f"Saved! Share link: {share_link}")
-        except Exception as e:
-            st.error(f"Save failed: {e}")
-
-
-
-
 
 st.markdown("---")
 # --- FAQ (above feedback) ---
