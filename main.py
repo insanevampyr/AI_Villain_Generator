@@ -649,6 +649,7 @@ if st.session_state.villain:
                 import io, re
                 from PIL import Image
 
+                # Build portrait bytes for ALL cases (AI, uploaded, or default placeholder)
                 portrait_bytes = None
                 if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
                     with open(st.session_state.ai_image, "rb") as _png:
@@ -659,48 +660,55 @@ if st.session_state.villain:
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
                     portrait_bytes = buf.getvalue()
+                else:
+                    # Default placeholder
+                    portrait_bytes = _image_bytes("assets/AI_Villain_logo.png")
 
-                if portrait_bytes:
-                    slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
+                # Safe filename
+                slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
+
+                # --- First row (desktop): Save Portrait + Save Card ---
+                row1_left, row1_right = st.columns([1, 1])
+
+                with row1_left:
                     st.download_button(
-                        label="⬇️ Download Villain Portrait",
+                        label="💾 Save Portrait",
                         data=portrait_bytes,
                         file_name=f"{slug}_portrait.png",
                         mime="image/png",
-                        key="btn_download_portrait_png",
+                        key="btn_save_portrait",
+                        use_container_width=True,
                     )
-                
-                    # --- Action buttons under the portrait ---
-                    row_a, row_b = st.columns([1, 1])
 
-                    with row_a:
-                        if st.button("⬇️ Download Villain Card", key="btn_card_oneclick_top", use_container_width=True):
-                            st.session_state.trigger_card_dl = True
-                            st.rerun()
+                with row1_right:
+                    if st.button("💾 Save Card", key="btn_save_card", use_container_width=True):
+                        st.session_state.trigger_card_dl = True
+                        st.rerun()
 
-                    with row_b:
-                        if st.button("💾 Save to My Villains", key="btn_save_villain_top", use_container_width=True):
-                            try:
-                                v = st.session_state.villain
-                                img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
-                                card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+                # --- Second row: Save to My Villains (full width) ---
+                if st.button("💾 Save to My Villains", key="btn_save_villain_below", use_container_width=True):
+                    try:
+                        v = st.session_state.villain
+                        img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
+                        card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
 
-                                rec_id = create_villain_record(
-                                    owner_email=norm_email,
-                                    villain_json=v,
-                                    style=style,
-                                    image_url=img_url,
-                                    card_url=card_url,
-                                    version=1,
-                                )
-                                token = ensure_share_token(rec_id)
-                                rec = get_villain(rec_id)
-                                fields = rec.get("fields", {}) if rec else {}
-                                public_url = fields.get("public_url", "")
-                                share_link = public_url or f"(share token: {token})"
-                                st.success(f"Saved! Share link: {share_link}")
-                            except Exception as e:
-                                st.error(f"Save failed: {e}")
+                        rec_id = create_villain_record(
+                            owner_email=norm_email,
+                            villain_json=v,
+                            style=style,
+                            image_url=img_url,
+                            card_url=card_url,
+                            version=1,
+                        )
+                        token = ensure_share_token(rec_id)
+                        rec = get_villain(rec_id)
+                        fields = rec.get("fields", {}) if rec else {}
+                        public_url = fields.get("public_url", "")
+                        share_link = public_url or f"(share token: {token})"
+                        st.success(f"Saved! Share link: {share_link}")
+                    except Exception as e:
+                        st.error(f"Save failed: {e}")
+
 
             except Exception as e:
                 st.warning(f"Couldn’t offer portrait download: {e}")
@@ -728,13 +736,39 @@ if st.session_state.villain:
     # --- Full-width Origin (wraps under the image) ---
     st.markdown("**Origin:**")
     st.markdown(villain["origin"])
-# --- Reroll controls: desktop (row) + mobile (stack) ---
-# DESKTOP: two columns side-by-side
-st.markdown('<div class="desktop-rerolls">', unsafe_allow_html=True)
-col_btn1, col_btn2 = st.columns([1, 1])
+if st.session_state.villain:
+    # --- Reroll controls: desktop (row) + mobile (stack) ---
+    # DESKTOP: two columns side-by-side
+    st.markdown('<div class="desktop-rerolls">', unsafe_allow_html=True)
+    col_btn1, col_btn2 = st.columns([1, 1])
 
-with col_btn1:
-    if st.button("🎲 Reroll Name", key="btn_reroll_name_desktop", use_container_width=True):
+    with col_btn1:
+        if st.button("🎲 Reroll Name", key="btn_reroll_name_desktop", use_container_width=True):
+            v = dict(st.session_state.villain)
+            new_name = select_real_name(v.get("gender", "unknown"))
+            v["name"] = new_name
+            v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
+            st.session_state.villain = v
+            st.rerun()
+
+    with col_btn2:
+        if st.button("📝 Reroll Origin", key="btn_reroll_origin_desktop", use_container_width=True):
+            v = dict(st.session_state.villain)
+            v["origin"] = generate_origin(
+                theme=style,
+                power=v.get("power", ""),
+                crimes=v.get("crimes", []) or [],
+                alias=v.get("alias", ""),
+                real_name=v.get("name", "")
+            )
+            v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
+            st.session_state.villain = v
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # MOBILE: stacked (two full-width buttons)
+    st.markdown('<div class="mobile-rerolls">', unsafe_allow_html=True)
+    if st.button("🎲 Reroll Name", key="btn_reroll_name_mobile", use_container_width=True):
         v = dict(st.session_state.villain)
         new_name = select_real_name(v.get("gender", "unknown"))
         v["name"] = new_name
@@ -742,8 +776,7 @@ with col_btn1:
         st.session_state.villain = v
         st.rerun()
 
-with col_btn2:
-    if st.button("📝 Reroll Origin", key="btn_reroll_origin_desktop", use_container_width=True):
+    if st.button("📝 Reroll Origin", key="btn_reroll_origin_mobile", use_container_width=True):
         v = dict(st.session_state.villain)
         v["origin"] = generate_origin(
             theme=style,
@@ -755,7 +788,8 @@ with col_btn2:
         v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
         st.session_state.villain = v
         st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 # MOBILE: stacked (two full-width buttons)
 st.markdown('<div class="mobile-rerolls">', unsafe_allow_html=True)
