@@ -52,7 +52,13 @@ def _get_secret(key: str, default: str = "") -> str:
     return str(os.getenv(key, default))
 
 
-from generator import generate_villain
+from generator import (
+    generate_villain,
+    select_real_name,        # for reroll name only
+    generate_origin,         # for reroll origin only
+    _normalize_origin_names  # to keep names consistent in the origin
+)
+
 from villain_utils import (
     create_villain_card,
     save_villain_to_log,
@@ -651,7 +657,32 @@ if st.session_state.villain:
             st.write("_No image available._")
 
     with col_meta:
-        st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
+        # Header row: villain name + reroll buttons
+        header_col, btn_col_1, btn_col_2 = st.columns([3, 1.3, 1.5])
+        with header_col:
+            st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
+        with btn_col_1:
+            if st.button("🎲 Reroll Name", key="btn_reroll_name_only", use_container_width=True):
+                v = dict(st.session_state.villain)
+                new_name = select_real_name(v.get("gender", "unknown"))
+                v["name"] = new_name
+                v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
+                st.session_state.villain = v
+                st.rerun()
+        with btn_col_2:
+            if st.button("📝 Reroll Origin", key="btn_reroll_origin_only", use_container_width=True):
+                v = dict(st.session_state.villain)
+                v["origin"] = generate_origin(
+                    theme=style,
+                    power=v.get("power",""),
+                    crimes=v.get("crimes",[]) or [],
+                    alias=v.get("alias",""),
+                    real_name=v.get("name","")
+                )
+                v["origin"] = _normalize_origin_names(v.get("origin",""), v.get("name",""), v.get("alias",""))
+                st.session_state.villain = v
+                st.rerun()
+
         st.markdown(f"**Power:** {villain['power']}")
         st.markdown(f"**Weakness:** {villain['weakness']}")
         st.markdown(f"**Nemesis:** {villain['nemesis']}")
