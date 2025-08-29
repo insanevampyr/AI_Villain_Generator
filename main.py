@@ -720,8 +720,7 @@ if st.session_state.villain:
     # --- Full-width Origin (wraps under the image) ---
     st.markdown("**Origin:**")
     st.markdown(villain["origin"])
-if st.session_state.villain:
-    # ——— Reroll controls (single responsive set: row on desktop, stacks on small screens) ———
+    # ——— Reroll controls (single responsive set) ———
     if st.session_state.villain:
         col_r1, col_r2 = st.columns([1, 1])
 
@@ -747,6 +746,7 @@ if st.session_state.villain:
                 v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
                 st.session_state.villain = v
                 st.rerun()
+
 
 
 # If the user clicked the button, build the card, then auto-download via a data URL
