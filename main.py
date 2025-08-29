@@ -488,6 +488,22 @@ if is_dev:
     title_text += " ⚡"
 st.title(title_text)
 
+# --- Responsive helper for reroll buttons (desktop row, mobile stack) ---
+if not st.session_state.get("_css_reroll_responsive_injected"):
+    st.markdown("""
+    <style>
+      /* default: desktop shows row; mobile switches to stacked */
+      .desktop-rerolls { display: block; }
+      .mobile-rerolls { display: none; }
+      @media (max-width: 680px) {
+        .desktop-rerolls { display: none !important; }
+        .mobile-rerolls { display: block !important; }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+    st.session_state["_css_reroll_responsive_injected"] = True
+
+
 thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
@@ -712,10 +728,13 @@ if st.session_state.villain:
     # --- Full-width Origin (wraps under the image) ---
     st.markdown("**Origin:**")
     st.markdown(villain["origin"])
-    # ——— Reroll controls (better placement below the bio) ———
+# --- Reroll controls: desktop (row) + mobile (stack) ---
+# DESKTOP: two columns side-by-side
+st.markdown('<div class="desktop-rerolls">', unsafe_allow_html=True)
 col_btn1, col_btn2 = st.columns([1, 1])
+
 with col_btn1:
-    if st.button("🎲 Reroll Name", key="btn_reroll_name_only", use_container_width=True):
+    if st.button("🎲 Reroll Name", key="btn_reroll_name_desktop", use_container_width=True):
         v = dict(st.session_state.villain)
         new_name = select_real_name(v.get("gender", "unknown"))
         v["name"] = new_name
@@ -724,7 +743,7 @@ with col_btn1:
         st.rerun()
 
 with col_btn2:
-    if st.button("📝 Reroll Origin", key="btn_reroll_origin_only", use_container_width=True):
+    if st.button("📝 Reroll Origin", key="btn_reroll_origin_desktop", use_container_width=True):
         v = dict(st.session_state.villain)
         v["origin"] = generate_origin(
             theme=style,
@@ -736,6 +755,31 @@ with col_btn2:
         v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
         st.session_state.villain = v
         st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
+
+# MOBILE: stacked (two full-width buttons)
+st.markdown('<div class="mobile-rerolls">', unsafe_allow_html=True)
+if st.button("🎲 Reroll Name", key="btn_reroll_name_mobile", use_container_width=True):
+    v = dict(st.session_state.villain)
+    new_name = select_real_name(v.get("gender", "unknown"))
+    v["name"] = new_name
+    v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
+    st.session_state.villain = v
+    st.rerun()
+
+if st.button("📝 Reroll Origin", key="btn_reroll_origin_mobile", use_container_width=True):
+    v = dict(st.session_state.villain)
+    v["origin"] = generate_origin(
+        theme=style,
+        power=v.get("power", ""),
+        crimes=v.get("crimes", []) or [],
+        alias=v.get("alias", ""),
+        real_name=v.get("name", "")
+    )
+    v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
+    st.session_state.villain = v
+    st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 
 # If the user clicked the button, build the card, then auto-download via a data URL
