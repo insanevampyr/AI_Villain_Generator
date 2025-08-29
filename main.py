@@ -624,7 +624,9 @@ if st.session_state.villain:
 
     with col_img:
         if display_source:
-            st.image(display_source, caption="Current Portrait", use_container_width=True)
+            caption_text = "WARNING DEFAULT IMAGE" if is_default_image else "Current Portrait"
+            st.image(display_source, caption=caption_text, use_container_width=True)
+
 
             # --- Download portrait: AI image (direct) OR uploaded image (convert → PNG) ---
             try:
@@ -635,14 +637,12 @@ if st.session_state.villain:
                 if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
                     with open(st.session_state.ai_image, "rb") as _png:
                         portrait_bytes = _png.read()
-                    tip = "Tip: This button gives you the exact 1024×1024 PNG saved on disk."
                 elif st.session_state.villain_image is not None:
                     st.session_state.villain_image.seek(0)
                     img = Image.open(st.session_state.villain_image).convert("RGBA")
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
                     portrait_bytes = buf.getvalue()
-                    tip = "Tip: This saves your uploaded image as a PNG named after the villain."
 
                 if portrait_bytes:
                     slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
@@ -653,14 +653,7 @@ if st.session_state.villain:
                         mime="image/png",
                         key="btn_download_portrait_png",
                     )
-                    # If the placeholder is showing, tell the user how to replace it
-                    if is_default_image:
-                        st.info("This is the default placeholder image. You can **upload your own** above or click **AI Generate Villain Image** to create one.")
-
-                    # If showing the placeholder image, explain it
-                    if not st.session_state.ai_image and st.session_state.villain_image is None:
-                        st.info("This is the default placeholder image. You can upload your own above or generate one with AI.")
-
+                
                     # --- Action buttons under the portrait ---
                     row_a, row_b = st.columns([1, 1])
 
