@@ -722,6 +722,7 @@ if st.session_state.villain:
     st.markdown(villain["origin"])
     # ——— Reroll controls (single responsive set) ———
     if st.session_state.villain:
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         col_r1, col_r2 = st.columns([1, 1])
 
         with col_r1:
