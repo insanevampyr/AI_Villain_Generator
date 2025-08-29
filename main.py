@@ -726,13 +726,13 @@ if st.session_state.villain:
         col_r1, col_r2 = st.columns([1, 1])
 
         with col_r1:
-        if st.button("🎲 Reroll Name", key="btn_reroll_name", use_container_width=True):
-            v = dict(st.session_state.villain)
-            new_name = select_real_name(v.get("gender", "unknown"))
-            v["name"] = new_name
-            v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
-            st.session_state.villain = v
-            st.rerun()
+            if st.button("🎲 Reroll Name", key="btn_reroll_name", use_container_width=True):
+                v = dict(st.session_state.villain)
+                new_name = select_real_name(v.get("gender", "unknown"))
+                v["name"] = new_name
+                v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
+                st.session_state.villain = v
+                st.rerun()
 
         with col_r2:
             if st.button("📝 Reroll Origin", key="btn_reroll_origin", use_container_width=True):
@@ -747,8 +747,6 @@ if st.session_state.villain:
                 v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
                 st.session_state.villain = v
                 st.rerun()
-
-
 
 
 # If the user clicked the button, build the card, then auto-download via a data URL
