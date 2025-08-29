@@ -653,7 +653,10 @@ if st.session_state.villain:
                         mime="image/png",
                         key="btn_download_portrait_png",
                     )
-                    st.caption(tip)
+                    # If the placeholder is showing, tell the user how to replace it
+                    if is_default_image:
+                        st.info("This is the default placeholder image. You can **upload your own** above or click **AI Generate Villain Image** to create one.")
+
                     # If showing the placeholder image, explain it
                     if not st.session_state.ai_image and st.session_state.villain_image is None:
                         st.info("This is the default placeholder image. You can upload your own above or generate one with AI.")
