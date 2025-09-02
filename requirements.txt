@@ -1,7 +1,6 @@
 streamlit
 openai
 python-dotenv
-pillow
 tiktoken
 requests
 fastapi

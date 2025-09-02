@@ -1,4 +1,6 @@
 from __future__ import annotations
+from dotenv import load_dotenv
+load_dotenv()
 
 # airtable_utils.py — Airtable helpers for AI Villain Generator
 import os
