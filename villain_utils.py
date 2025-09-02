@@ -811,14 +811,17 @@ def generate_visual_prompt(villain):
         "no letters, no numbers, no captions, no subtitles, no posters, no billboards, no signage, no logos, no UI. "
         "Absolutely forbid any written words from appearing in the image—even if they appear in this prompt. "
         "If a style like glitch/cyberpunk/poster would suggest UI, labels, displays or screens, reinterpret it purely "
-        "as lighting, texture, color, or atmosphere; omit panels, monitors, interfaces, graffiti, labels, or signage."
+        "as lighting, texture, color, or atmosphere; omit panels, monitors, interfaces, graffiti, labels, or signage. "
+        "The character's superpower must be clearly visible in-frame—express it through pose, lighting, environment, props, or effects; never write words or spell the powers' name."
     )
 
+
     user_prompt = (
-        f"{gender_phrase}. {theme_line} "
-        f"Origin vibe (PG-13 only): {origin_s} "
-        f"Power vibe (PG-13 only): {power_s} "
-        f"{QUALITY_HINT}"
+        f"{gender_phrase}. {theme_line} " 
+        f"Origin vibe (PG-13 only): {origin_s} " 
+        f"Power vibe (PG-13 only): {power_s} " 
+        f"{QUALITY_HINT} " 
+        "Show the power in action or as a visual effect on the character or the scene—no on-screen text."
     )
 
     try:

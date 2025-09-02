@@ -1,4 +1,37 @@
 # main.py
+# --- Load .env and merge Streamlit secrets into os.environ BEFORE other imports ---
+import os, time
+from dotenv import load_dotenv
+import streamlit as st
+load_dotenv(override=True)
+from config import get_style_prompt
+
+from pathlib import Path
+import re
+from config import is_uber_enabled, set_uber_enabled_runtime, compendium_available_themes, normalize_style_key, get_theme_description
+
+
+def _merge_secrets_into_env():
+    try:
+        if hasattr(st, "secrets"):
+            for k, v in st.secrets.items():
+                if (k not in os.environ) or (str(os.environ.get(k, "")).strip() == ""):
+                    os.environ[k] = str(v)
+    except Exception:
+        pass
+_merge_secrets_into_env()
+
+print("DEBUG: OPENAI_API_KEY in env?", "OPENAI_API_KEY" in os.environ)
+print("DEBUG: OPENAI_API_KEY length:", len(os.getenv("OPENAI_API_KEY") or ""))
+try:
+    import streamlit as st
+    if hasattr(st, "secrets"):
+        print("DEBUG: st.secrets has OPENAI_API_KEY?", "OPENAI_API_KEY" in st.secrets)
+except Exception as e:
+    print("DEBUG: st.secrets check failed:", e)
+
+# --------------------------------------------------------------------------
+
 import os
 import random
 import smtplib
@@ -28,36 +61,11 @@ from airtable_utils import (
     airtable_config_status,    # <-- added
 )
 
-
-from streamlit.components.v1 import html as st_html
-from dotenv import load_dotenv
-load_dotenv()
-
-# --- Make Streamlit Cloud secrets visible to modules that read os.getenv ---
-def _merge_secrets_into_env():
-    try:
-        if hasattr(st, "secrets"):
-            for k, v in st.secrets.items():
-                if k not in os.environ:
-                    os.environ[k] = str(v)
-    except Exception:
-        pass
-_merge_secrets_into_env()
-# --------------------------------------------------------------------------
-
 def _get_secret(key: str, default: str = "") -> str:
     # Prefer Streamlit Cloud secrets, fallback to env
     if st and hasattr(st, "secrets") and key in st.secrets:
         return str(st.secrets[key])
     return str(os.getenv(key, default))
-
-
-from generator import (
-    generate_villain,
-    select_real_name,        # for reroll name only
-    generate_origin,         # for reroll origin only
-    _normalize_origin_names  # to keep names consistent in the origin
-)
 
 from villain_utils import (
     create_villain_card,
@@ -86,7 +94,25 @@ from airtable_utils import (
 # ---------------------------
 load_dotenv()
 DEV_DASH_KEY = _get_secret("DEV_DASH_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# --- Bootstrap ---
+load_dotenv()
+
+# Resolve without ever clobbering a good env value
+try:
+    OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or str(st.secrets["OPENAI_API_KEY"])).strip()
+except Exception:
+    OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or "").strip()
+
+if OPENAI_API_KEY:  # only write if non-empty
+    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+
+# Tell generator its final key BEFORE importing its symbols
+import generator
+generator.init_openai_key(OPENAI_API_KEY)
+
+DEV_DASH_KEY = _get_secret("DEV_DASH_KEY", "")
+
+
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -95,6 +121,13 @@ APP_NAME = os.getenv("APP_NAME", "AI Villain Generator")
 
 st.set_page_config(page_title=APP_NAME, page_icon="🌙", layout="centered")
 seed_debug_panel_if_needed()
+
+from generator import (
+    generate_villain,
+    select_real_name,        # for reroll name only
+    generate_origin,         # for reroll origin only
+    _normalize_origin_names  # to keep names consistent in the origin
+)
 
 # ---------------------------
 # Persistent session fields
@@ -126,6 +159,22 @@ for k, v in dict(
 if not st.session_state.device_id:
     st.session_state.device_id = f"dev-{random.randint(10**8, 10**9-1)}"
 
+def _save_env_bool(name: str, value: bool):
+    env_path = Path(__file__).parent / ".env"
+    val = "true" if value else "false"
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+        for i, l in enumerate(lines):
+            if re.match(rf"^\s*{re.escape(name)}\s*=", l):
+                lines[i] = f"{name}={val}"
+                break
+        else:
+            lines.append(f"{name}={val}")
+        env_path.write_text("\n".join(lines) + "\n")
+    else:
+        env_path.write_text(f"{name}={val}\n")
+
+
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -149,14 +198,15 @@ def _send_otp_email(to_email: str, code: str) -> bool:
 
 def _current_user_fields():
     if not st.session_state.otp_email:
-        return {"ai_credits": 0, "free_used": False}
+        return {"ai_credits": 0, "free_used": False, "uber_enabled": False}
     rec = get_user_by_email(st.session_state.otp_email)
     if not rec:
-        return {"ai_credits": 0, "free_used": False}
+        return {"ai_credits": 0, "free_used": False, "uber_enabled": False}
     f = rec.get("fields", {}) or {}
     return {
         "ai_credits": int(f.get("ai_credits", 0) or 0),
         "free_used": bool(f.get("free_used", False)),
+        "uber_enabled": bool(f.get("uber_enabled", False)),
     }
 
 def _set_login_background():
@@ -205,7 +255,7 @@ def _clear_background_after_login():
 
 def focus_input(label_text: str):
     # Focus an input by its aria-label (Streamlit uses label text)
-    st_html(
+    components.html(
         f"""
         <script>
         const el = window.parent.document.querySelector('input[aria-label="{label_text}"]');
@@ -311,6 +361,48 @@ if dev_open:
     with col_close:
         st.link_button("Close", f"?{urlencode(close_params)}", use_container_width=True)
 
+        # --- UBER tier toggle (dev only) ---
+        st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
+        st.caption("Uber tier")
+
+        cur = is_uber_enabled()
+        new = st.checkbox("Enable UBER tier", value=cur, key="uber_toggle", help="Dev-only: gates UBER content")
+
+        cols = st.columns([1,1])
+        with cols[0]:
+            if st.button("Save UBER", use_container_width=True, key="btn_save_uber"):
+                set_uber_enabled_runtime(new)
+                _save_env_bool("VILLAINS_ENABLE_UBER", new)
+                st.success(f"Saved: UBER {'ON' if new else 'OFF'}")
+                # -- Load old Airtable save (record id) for testing the shim --
+                st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+                st.caption("Load old Airtable save")
+                rec_id = st.text_input("Airtable Record ID", key="legacy_load_recid", label_visibility="collapsed",
+                                    placeholder="recXXXXXXXXXXXXXX")
+                if st.button("Load record", use_container_width=True, key="btn_load_legacy"):
+                    try:
+                        rec = get_villain(rec_id)  # from airtable_utils
+                        fields = (rec or {}).get("fields", {})
+                        v = _shim_from_airtable_fields(fields)
+                        if not v:
+                            st.error("Couldn’t parse that record (no villain_json?).")
+                        else:
+                            st.success("Loaded + normalized.")
+                            # show a quick pretty print
+                            st.json({
+                                "name": v.get("name"),
+                                "theme": v.get("theme"),
+                                "power_name": (v.get("power") or {}).get("name"),
+                                "legacy": v.get("_legacy", False),
+                                "threat_label": v.get("threat_label"),
+                                "threat_text": v.get("threat_text"),
+                                "crimes": v.get("crimes"),
+                            })
+                    except Exception as e:
+                        st.error(f"Error loading record: {e}")
+
+
+
     # --- Admin Top-Up (only if dev mode is active) ---
     if st.session_state.dev_key_entered:
         st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
@@ -334,6 +426,41 @@ if dev_open:
                         st.error(msg)
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+# ---- Legacy loader shim (old Airtable saves → new compendium shape) ----
+import json
+from config import upconvert_power, normalize_style_key
+
+def _shim_from_airtable_fields(fields: dict) -> dict | None:
+    """
+    Accepts a single Airtable record's fields and returns a normalized villain dict.
+    Handles old saves where 'power' was a plain string.
+    """
+    if not fields:
+        return None
+
+    # 1) get the JSON payload (typical field name: 'villain_json')
+    raw_json = fields.get("villain_json") or fields.get("json") or ""
+    if not raw_json:
+        return None
+
+    try:
+        v = json.loads(raw_json)
+    except Exception:
+        return None
+
+    # 2) Normalize power (string → compendium dict)
+    p = v.get("power")
+    v["power"] = upconvert_power(p)
+
+    # 3) Normalize theme key (old labels → compendium key; safe pass-through)
+    v["theme"] = normalize_style_key(v.get("theme"))
+
+    # 4) Mark legacy if we upconverted from a string
+    if not isinstance(p, dict):
+        v["_legacy"] = True
+
+    return v
 
 # ---------------------------
 # LOGIN UI (stacked, background, autofocus)
@@ -407,6 +534,12 @@ def ui_otp_panel():
                     st.session_state.otp_email = email_for_verify
                     st.session_state.otp_verified = True
                     upsert_user(st.session_state.otp_email)
+                    # After successful OTP verify & upsert_user(...)
+                    fields = _current_user_fields()
+                    st.session_state.prev_credits = fields["ai_credits"]
+                    # Apply per-user Uber gate to runtime
+                    from config import set_uber_enabled_runtime
+                    set_uber_enabled_runtime(bool(fields.get("uber_enabled", False)))
                     st.success("✅ Verified!")
                     st.rerun()
                 else:
@@ -520,10 +653,20 @@ if free_used and credits <= 0 and not is_dev:
 # ---------------------------
 # Theme / style
 # ---------------------------
-style = st.selectbox("Choose a style", [
-    "dark", "funny", "sci-fi", "mythic", "chaotic", "satirical", "cyberpunk"
-])
-theme = STYLE_THEMES.get(style, {"accent": "#ff4b4b", "text": "#ffffff"})
+from config import is_uber_enabled, compendium_available_themes, normalize_style_key
+user_summary = _current_user_fields()
+include_uber = bool(is_uber_enabled() or user_summary.get("uber_enabled"))
+themes = compendium_available_themes(include_uber=include_uber)
+opts = themes
+name_to_key = {t["name"]: t["key"] for t in opts}
+style_label = st.selectbox("Choose a theme", list(name_to_key.keys()))
+# After user picks a label, resolve key and show description
+if "style_label" in locals():
+    style_key = name_to_key.get(style_label, "")
+    desc = get_theme_description(style_key)
+    if desc:
+        st.caption(desc)
+style_key = normalize_style_key(name_to_key[style_label])
 
 # ---------------------------
 # Portrait source
@@ -540,7 +683,7 @@ if image_option == "Upload Your Own":
 # Generate villain details
 # ---------------------------
 if st.button("Generate Villain Details"):
-    st.session_state.villain = generate_villain(tone=style)
+    st.session_state.villain = generate_villain(tone=style_key)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
@@ -598,7 +741,12 @@ if st.session_state.villain:
             )
         else:
             with st.spinner("Summoning villain through the multiverse..."):
-                ai_path = generate_ai_portrait(villain)
+                style = get_style_prompt(villain.get("theme"))
+                base_prompt = villain.get("origin", "")
+                image_prompt = f"{base_prompt}\n\nStyle: {style}".strip()
+
+                ai_path = generate_ai_portrait(villain | {"image_prompt": image_prompt})
+
                 if ai_path and os.path.exists(ai_path):
                     st.session_state.ai_image = ai_path
                     st.session_state.villain_image = ai_path
@@ -679,7 +827,7 @@ if st.session_state.villain:
                         rec_id = create_villain_record(
                             owner_email=norm_email,
                             villain_json=v,
-                            style=style,
+                            style=v.get("theme", style_key),
                             image_url=img_url,
                             card_url=card_url,
                             version=1,
@@ -714,7 +862,11 @@ if st.session_state.villain:
         for crime in crimes:
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
 
-        st.markdown(f"**Threat Level:** {villain['threat_level']}")
+        st.markdown(
+            f"**Threat Level:** {villain['threat_level']}" +
+            (f" — {villain.get('threat_text')}" if villain.get('threat_text') else "")
+        )
+
         st.markdown(f"**Faction:** {villain['faction']}")
 
     # --- Full-width Origin (wraps under the image) ---
@@ -738,7 +890,7 @@ if st.session_state.villain:
             if st.button("📝 Reroll Origin", key="btn_reroll_origin", use_container_width=True):
                 v = dict(st.session_state.villain)
                 v["origin"] = generate_origin(
-                    theme=style,
+                    theme=v.get("theme", style_key),
                     power=v.get("power", ""),
                     crimes=v.get("crimes", []) or [],
                     alias=v.get("alias", ""),
@@ -762,7 +914,7 @@ if st.session_state.get("trigger_card_dl"):
         or "assets/AI_Villain_logo.png"
     )
     try:
-        path = create_villain_card(villain, image_file=image_for_card, theme_name=style)
+        path = create_villain_card(villain, image_file=image_for_card, theme_name=villain.get("theme", style_key))
         with open(path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("utf-8")
         # Safe filename from villain name
