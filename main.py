@@ -668,6 +668,19 @@ if "style_label" in locals():
         st.caption(desc)
 style_key = normalize_style_key(name_to_key[style_label])
 
+# --- UBER-only: AI Details (Wildcard powers) toggle ---
+from config import is_uber_enabled
+if is_uber_enabled():
+    st.checkbox(
+        "🔀 UBER: AI details (Wildcard power = 100% AI)",
+        key="uber_ai_details",
+        help="When ON, powers bypass the compendium and are freshly AI-generated."
+    )
+else:
+    # make sure it isn't sticky when UBER is off
+    st.session_state.pop("uber_ai_details", None)
+
+
 # ---------------------------
 # Portrait source
 # ---------------------------

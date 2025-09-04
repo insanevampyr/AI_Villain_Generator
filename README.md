@@ -15,9 +15,9 @@
 
 ## 💀 What It Does
 
-- Generates random villain names, powers, crimes, bios  
-- Style selector (dark, epic, funny, etc.)  
-- AI-generated portrait or custom image upload  
+- Generates villains with theme + power, description, threat levels, crimes & origin
+- Uber Tier (unlock even more powerful themes/powers), dual powers, etc
+- Theme-based style injection for AI-generated portraits
 - Downloadable villain card  
 - Logs results locally for future expansion
 

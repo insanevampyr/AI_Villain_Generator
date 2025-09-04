@@ -268,6 +268,45 @@ THEME_PROFILES: Dict[str, dict] = {
     },
 }
 
+def _threat_text_from_level(theme: str, threat_level: str, power_line: str) -> str:
+    """
+    Lightweight, token-free threat text for AI Wildcard powers.
+    Uses level + theme tone to produce a one-liner like compendium entries.
+    """
+    t = (theme or "").strip().lower()
+    lvl = (threat_level or "").strip().title()
+    # Extract the short description on the right of the em dash if present
+    # e.g., "Familiar Summoning — Call animal spirits/demons to serve."
+    desc = power_line.split("—", 1)[1].strip() if "—" in (power_line or "") else power_line
+
+    base = {
+        "Laughably Low":  "Minor stunts; brief nuisance value.",
+        "Moderate":       "Street-to-district impact; effective in close operations.",
+        "High":           "City-block scale disruptions; overwhelms standard response.",
+        "Extreme":        "Citywide catastrophe potential; strategic-level threat."
+    }.get(lvl, "Operationally significant; situationally dangerous.")
+
+    # Light theme flavoring
+    flavor = {
+        "dark":       "Predatory application with unsettling side effects.",
+        "mythic":     "Oathbound force; echoes of ancient power.",
+        "epic":       "Grand, cinematic scale with collateral risk.",
+        "sci-fi":     "Technically precise, infrastructure-hostile.",
+        "cyberpunk":  "Urban-grid exploitation; power plays in neon shadows.",
+        "satirical":  "Social disruption with pointed irony.",
+        "funny":      "Clownish presentation, real consequences.",
+        "chaotic":    "Unstable expression; outcomes skew volatile.",
+        "elemental":  "Raw natural force harnessed as a weapon.",
+        "energy":     "Physics-bending output with cascading effects.",
+        "fantasy":    "Arcane vector with ritual hooks.",
+    }.get(t, "")
+
+    # Short, punchy, and similar to compendium tone
+    if flavor:
+        return f"{base} {flavor}"
+    return base
+
+
 # Uber-only style keys the UI exposes when Uber is ON
 UBER_THEMES = ("apocalypse", "eldritch", "cosmic_horror", "void", "divine_judgment", "time_bender")
 
@@ -1095,26 +1134,203 @@ def _clean_catchphrase(s: str) -> str:
 def generate_villain(tone: str = "dark", force_new: bool = False):
     """
     POWER-FIRST PIPELINE:
-      1) Select power (70% listed / 30% AI-generated).
-      2) Provide example crimes for that power family (context only) + HARD BANS/variety constraints.
-      3) Ask LLM for the remaining fields AND a fresh crimes[] list tailored to the power.
-      4) Normalize/clean crimes (strings only), de‑cliché, and generate the origin.
+      - If UBER toggle 'uber_ai_details' is ON -> 100% AI power (Wildcard).
+      - Else -> Compendium (scripted) power.
+      Then: build crimes via LLM, normalize, write origin, and return a full dict.
     """
     theme = normalize_style_key(tone)
     profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
-    comp_bundle = compendium_pick_power(theme, include_uber=is_uber_enabled())  # single source of truth
-    if isinstance(comp_bundle, tuple): comp_bundle = comp_bundle[0]
-    # bundle has: theme_key, name, aka, description, threat_label, threat_text, crimes (canon examples)
 
-    power = f"{comp_bundle.get('name','Unknown')} — {comp_bundle.get('description','').strip()}"
-    threat_level = comp_bundle.get("threat_label", "Moderate")
-    threat_text  = comp_bundle.get("threat_text", "")
-    power_source = "compendium"
+    # --- Wildcard: 100% AI power when UBER switch is ON ---
+    try:
+        wildcard_on = bool(st.session_state.get("uber_ai_details"))
+    except Exception:
+        wildcard_on = False
 
-    crime_examples = []  # we’re not feeding canon examples anymore (Option 1)
-    bans_and_style = _crime_bans_and_style(power, theme)
+    if wildcard_on:
+        # fresh AI power for the selected theme
+        ai_line = _generate_ai_power(theme)  # "Title — short cinematic description"
+        if not ai_line:
+            # fallback to legacy AI path
+            ai_line, _ = _select_power_legacy(theme)
 
-    
+        power = ai_line or "Unknown Power — short description"
+
+        # classify & adjust threat for the AI power
+        computed = classify_threat_from_power(power)
+        threat_level = adjust_threat_for_theme(theme, computed, power)
+
+        # create a short threat text for card display
+        threat_text = _threat_text_from_level(theme, threat_level, power)
+
+        power_source = "ai"
+
+        # AI path: let crimes be invented downstream (no canon examples)
+        crime_examples: List[str] = []
+        bans_and_style = _crime_bans_and_style(power, theme)
+
+    else:
+        # --- Compendium (scripted) power branch ---
+        comp_bundle = compendium_pick_power(theme, include_uber=is_uber_enabled())
+        if isinstance(comp_bundle, tuple):
+            comp_bundle = comp_bundle[0]
+
+        # bundle has: theme_key, name, aka, description, threat_label, threat_text, crimes (canon examples)
+        power = f"{comp_bundle.get('name','Unknown')} — {comp_bundle.get('description','').strip()}"
+        threat_level = comp_bundle.get("threat_label", "Moderate")
+        threat_text  = comp_bundle.get("threat_text", "")
+        power_source = "compendium"
+
+        # We don't feed canon crimes as-is; treat as inspiration only
+        crime_examples: List[str] = []
+        if isinstance(comp_bundle, dict) and comp_bundle.get("crimes"):
+            c = [str(x).strip() for x in (comp_bundle.get("crimes") or []) if str(x).strip()]
+            if c:
+                crime_examples = c[:3]
+
+        bans_and_style = _crime_bans_and_style(power, theme)
+
+    # ---- Step 3: Build JSON shell prompt (includes crimes[] to be invented)
+    lines_block = "\n".join([
+        f"Theme: {theme}",
+        f"Threat: {threat_level} — {threat_text}",
+    ])
+
+    ex_line = "; ".join(crime_examples)
+    prompt = f"""
+    Fill this villain JSON. The POWER is fixed. Use the EXAMPLE CRIMES as inspiration only (do not copy them).
+
+    {lines_block}
+
+    ABILITY CONTEXT (do not name it in output): {power}
+    EXAMPLE CRIMES (inspiration only): {ex_line}
+
+    {bans_and_style}
+
+    Rules:
+    - Keep severity consistent with Threat Level: {threat_level}.
+    - Invent exactly 3 unique crimes that a villain with the above ability would commit.
+    - Do NOT name the power more than once; imply capability via actions/effects on targets.
+    - No adjacent abilities or tools that would simulate other powers.
+    - Vary targets (people, finance, transit, comms, landmarks, government facilities). Keep each crime 7–14 words.
+    - Do NOT reuse the example crimes verbatim; remix or escalate to suit the ability.
+    - Real name is modern FIRST + LAST only (no titles), unrelated to power.
+    - Gender ∈ ["male","female"]; if unsure, pick one.
+    - Alias creative and distinct from real name; avoid overused 'dark'/'shadow' unless theme demands it.
+    - Keep JSON valid and compact. No comments.
+    - **Fill every field**. Do **not** write "Unknown", "N/A", "None", or empty strings. If unsure, **invent** something consistent with the theme.
+    - Length & style constraints:
+      * catchphrase: 3–10 words (no surrounding quotes unless part of the phrase)
+      * lair: 2–6 words
+      * weakness: 2–10 words (concrete vulnerability)
+      * faction: short invented group name or "Independent"
+
+    Return JSON with keys ONLY:
+    gender, name, alias, weakness, nemesis, lair, catchphrase, faction, crimes
+    """.strip()
+
+    set_debug_info(context="Villain Shell (AI crimes)", prompt=prompt, max_output_tokens=360,
+                   cost_only=False, is_cache_hit=False)
+
+    resp = _chat_with_retry(
+        messages=[{"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
+                  {"role": "user", "content": prompt}],
+        max_tokens=360,
+        temperature=profile["temperature"],
+        presence_penalty=0.6,
+        frequency_penalty=0.7,
+        attempts=2,
+    )
+    txt = (resp.choices[0].message.content or "").strip()
+    data = _coerce_json(txt) or _fix_json_with_llm(txt) or {}
+    data = _fill_missing_fields(theme=theme, power=power, partial=data)
+
+    # gender
+    gender = (data.get("gender") or "").lower().strip()
+    if gender not in {"male", "female"}:
+        gender = random.choice(["male", "female"])
+
+    # names
+    _ensure_bags()
+    real_name = select_real_name(gender=gender, ai_name_hint=data.get("name", ""))
+    alias = data.get("alias", "Unknown") or "Unknown"
+
+    # crimes: normalize -> de-cliché -> ensure 3–5
+    raw_crimes = data.get("crimes") or []
+    if isinstance(raw_crimes, (str, dict)):
+        raw_crimes = [raw_crimes]
+    crimes: List[str] = []
+    for item in (raw_crimes if isinstance(raw_crimes, list) else []):
+        s = _normalize_crime_item(item)
+        if s:
+            crimes.append(s)
+    crimes = _diversify_crimes_after(power, theme, crimes)
+    crimes = _enforce_threat(threat_level, crimes)
+    if len(crimes) < 3:
+        base = crime_examples[:]
+        random.shuffle(base)
+        remix = [re.sub(r"\b(city|cities)\b", "the capital", c, flags=re.I) for c in base[:3]]
+        crimes = (crimes + remix)[:5]
+
+    # origin
+    origin = generate_origin(theme=theme, power=power, crimes=crimes, alias=alias, real_name=real_name)
+    origin = _normalize_origin_names(origin, real_name, alias)
+
+    # catchphrase cleanup
+    raw_cp = data.get("catchphrase", "")
+    cp = _clean_catchphrase(raw_cp) or raw_cp
+
+    result = {
+        "name": real_name,
+        "alias": alias,
+        "power": power,
+        "weakness": data.get("weakness", "Unknown"),
+        "nemesis": data.get("nemesis", "Unknown"),
+        "lair": data.get("lair", "Unknown"),
+        "catchphrase": cp,
+        "crimes": crimes,
+        "crime_examples": crime_examples,
+        "threat_level": threat_level,
+        "threat_text": threat_text,
+        "faction": data.get("faction", "Unknown"),
+        "origin": origin,
+        "gender": gender,
+        "theme": theme,
+        "power_source": power_source,  # "compendium" or "ai"
+    }
+    return result
+
+def _ai_threat_text(theme: str, threat_level: str, power_line: str) -> str:
+    """
+    Tiny chat call to craft a compendium-style one-liner for the chosen level.
+    Keep it short, punchy, and safe (no gore).
+    """
+    try:
+        prompt = (
+            "Write ONE short threat-text line for a villain power, "
+            "matching this threat level and tone. 6–14 words, no quotes, no emojis, no gore.\n"
+            f"Theme: {theme}\n"
+            f"Threat Level: {threat_level}\n"
+            f"Power: {power_line}\n"
+            "Examples of style (do NOT copy): "
+            "‘Blackouts, rolling thunderstorms.’ ‘Derail trains; collapse bridges.’"
+        )
+        resp = openai.ChatCompletion.create(
+            model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini"),
+            messages=[{"role":"system","content":"You write terse compendium blurbs."},
+                      {"role":"user","content":prompt}],
+            temperature=0.4,
+            max_tokens=28,
+        )
+        txt = (resp.choices[0].message.content or "").strip()
+        # sanitize: single line, trim punctuation bloat
+        txt = re.sub(r"\s+", " ", txt)
+        txt = txt.strip().strip('"“”').strip()
+        return txt[:140]
+    except Exception:
+        return _threat_text_from_level(theme, threat_level, power_line)
+
+
     # If compendium gave us crimes for this power, use them as INSPIRATION ONLY
     if isinstance(comp_bundle, dict) and comp_bundle.get("crimes"):
         c = [str(x).strip() for x in (comp_bundle.get("crimes") or []) if str(x).strip()]
