@@ -988,7 +988,10 @@ WT_PATH = "assets/wattpad-logo.svg"
 if not os.path.exists(WT_PATH):
     st.warning("Missing: assets/wattpad-logo.svg")  # visible if the file isn't in the repo/runtime
 
-wt_icon = _img_to_base64(WT_PATH)  # will be "" if read fails
+wt_icon = _img_to_base64("assets/wattpad-logo.svg")
+if not wt_icon:
+    st.warning("⚠️ Wattpad logo not found at assets/wattpad-logo.svg")
+
 x_icon = _img_to_base64("assets/social/x.png")
 ig_icon = _img_to_base64("assets/social/instagram.png")
 rd_icon = _img_to_base64("assets/social/reddit.png")
