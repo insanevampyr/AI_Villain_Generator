@@ -985,6 +985,7 @@ def _img_to_base64(path):
 
 
 # --- Socials Footer (very bottom) ---
+wt_icon = _img_to_base64("assets/wattpad-logo.svg")
 x_icon = _img_to_base64("assets/social/x.png")
 ig_icon = _img_to_base64("assets/social/instagram.png")
 rd_icon = _img_to_base64("assets/social/reddit.png")
@@ -1028,16 +1029,21 @@ st.markdown(
     <div class="socials-wrap">
       <div class="socials-title">Follow us</div>
       <div class="socials-row">
-        <a href="https://x.com/AI_Villains?t=7A4N3C6ONr1e4pxa81XZkA&s=09" target="_blank" title="Twitter / X">
+        <!-- Wattpad FIRST (far left) using your local SVG -->
+        <a href="https://www.wattpad.com/user/AI_Villain_Generator" target="_blank" title="Wattpad" rel="noopener">
+          <img src="data:image/svg+xml;base64,{wt_icon}" alt="Wattpad">
+        </a>
+
+        <a href="https://x.com/AI_Villains?t=7A4N3C6ONr1e4pxa81XZkA&s=09" target="_blank" title="Twitter / X" rel="noopener">
           <img src="data:image/png;base64,{x_icon}" alt="X">
         </a>
-        <a href="https://www.instagram.com/ai_villain_generator?igsh=MXdlenZ3dHk2Yjd6MA==" target="_blank" title="Instagram">
+        <a href="https://www.instagram.com/ai_villain_generator?igsh=MXdlenZ3dHk2Yjd6MA==" target="_blank" title="Instagram" rel="noopener">
           <img src="data:image/png;base64,{ig_icon}" alt="Instagram">
         </a>
-        <a href="https://www.reddit.com/u/Ai_villain_gen/s/yGizM1bLU5" target="_blank" title="Reddit">
+        <a href="https://www.reddit.com/u/Ai_villain_gen/s/yGizM1bLU5" target="_blank" title="Reddit" rel="noopener">
           <img src="data:image/png;base64,{rd_icon}" alt="Reddit">
         </a>
-        <a href="https://www.facebook.com/share/16v4KkLRTC/" target="_blank" title="Facebook">
+        <a href="https://www.facebook.com/share/16v4KkLRTC/" target="_blank" title="Facebook" rel="noopener">
           <img src="data:image/png;base64,{fb_icon}" alt="Facebook">
         </a>
       </div>

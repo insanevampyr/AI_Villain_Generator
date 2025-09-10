@@ -30,14 +30,45 @@ def render_faq(title="FAQ"):
         with st.expander(q, expanded=False):
             st.write(a)
 
-# Optional (use later): simple socials block with emojis
 def render_socials():
-    st.markdown("### 🌐 Follow Us")
     st.markdown(
         """
-        - 🐦 [Twitter/X](https://twitter.com/YourHandle)  
-        - 📸 [Instagram](https://instagram.com/YourHandle)  
-        - 📘 [Facebook](https://facebook.com/YourHandle)  
-        - 💬 [Discord](https://discord.gg/YourInvite)  
-        """
+        <style>
+          .social-row {
+            display:flex;gap:12px;align-items:center;margin:6px 0;
+          }
+          .social-row a {
+            display:inline-block;transition:transform .15s ease;
+          }
+          .social-row a:hover {
+            transform:scale(1.1);
+          }
+          .social-row img {
+            width:28px;height:28px;vertical-align:middle;
+          }
+        </style>
+
+        <h3>🌐 Follow Us</h3>
+        <div class="social-row">
+          <!-- Wattpad FIRST with your uploaded SVG -->
+          <a href="https://www.wattpad.com/user/AI_Villain_Generator" target="_blank" rel="noopener">
+            <img src="assets/wattpad-logo.svg" alt="Wattpad">
+          </a>
+
+          <!-- Replace placeholders with your actual handles -->
+          <a href="https://twitter.com/YourHandle" target="_blank" rel="noopener">
+            <img src="assets/twitter-logo.svg" alt="Twitter">
+          </a>
+          <a href="https://instagram.com/YourHandle" target="_blank" rel="noopener">
+            <img src="assets/instagram-logo.svg" alt="Instagram">
+          </a>
+          <a href="https://facebook.com/YourHandle" target="_blank" rel="noopener">
+            <img src="assets/facebook-logo.svg" alt="Facebook">
+          </a>
+          <a href="https://discord.gg/YourInvite" target="_blank" rel="noopener">
+            <img src="assets/discord-logo.svg" alt="Discord">
+          </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
