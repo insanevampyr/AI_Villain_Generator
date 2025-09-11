@@ -2,7 +2,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-
 FAQ_ITEMS = [
     ("What is this?",
      "A tool that makes unique villains with names, powers, crimes, origins, and portraits."),
@@ -11,7 +10,7 @@ FAQ_ITEMS = [
     ("Is it random?",
      "Yes. Every villain is different, with extra variety to reduce repeats."),
     ("Can I pick the style?",
-     "Yep — choose a theme (dark, funny, tragic, sci‑fi, etc.) before generating."),
+     "Yep — choose a theme (dark, funny, tragic, sci-fi, etc.) before generating."),
     ("Do I need to pay?",
      "Text villains are free. AI portraits: 1 free + extra with supporter credits."),
     ("Can I use villains in my stories/games?",
@@ -107,17 +106,14 @@ def render_share_mvp(st, share_link: str, default_text: str):
         v = st.session_state.villain
         caption = f"{v.get('name','')} — {caption}"
 
-
     # Layout
     st.subheader("Share on social media")
     col1, col2, col3 = st.columns([1, 1, 1])
 
     # ---- Tweet + Facebook (simple links) ----
     from urllib.parse import quote_plus
-
     tweet_url = f"https://twitter.com/intent/tweet?text={quote_plus(caption)}"
     fb_url = f"https://www.facebook.com/sharer/sharer.php?u={quote_plus(share_link)}"
-
 
     with col1:
         st.link_button("Tweet", tweet_url, use_container_width=True)
@@ -125,8 +121,7 @@ def render_share_mvp(st, share_link: str, default_text: str):
         st.link_button("Facebook", fb_url, use_container_width=True)
 
     # ---- Copy caption (clipboard-safe) ----
-    # We render a tiny component with a hidden textarea and a button that uses
-    # execCommand('copy'), which works inside Streamlit’s sandbox.
+    # Tiny component with a hidden textarea + execCommand('copy').
     with col3:
         components.html(
             f"""
