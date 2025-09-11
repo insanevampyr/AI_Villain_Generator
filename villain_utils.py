@@ -51,6 +51,7 @@ ASSETS_DIR  = BASE_DIR / "assets"
 FONTS_DIR   = BASE_DIR / "fonts" / "ttf"
 IMAGES_DIR  = BASE_DIR / "villain_images"
 LOGS_DIR    = BASE_DIR / "villain_logs"
+CARDS_DIR  = BASE_DIR / "villain_cards" 
 
 # Files
 DEFAULT_IMAGE   = str(ASSETS_DIR / "AI_Villain_logo.png")
@@ -62,21 +63,20 @@ SKULL_ICON      = str(ASSETS_DIR / "skull_icon.png")
 IMAGE_FOLDER = str(IMAGES_DIR)
 FONT_PATH    = str(FONTS_DIR)
 LOG_FOLDER   = str(LOGS_DIR)
+CARD_FOLDER  = str(CARDS_DIR)  
 
 # Ensure required folders exist (safe for both local + Cloud)
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
+CARDS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Footer / branding
-QR_STAMP      = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"   # <-- your QR file
 HASHTAG_TEXT  = "#AIVillains"
 FOOTER_BAND_H = 96    # reserved footer height so text never overlaps
 QR_SIZE       = 88    # px
 FOOTER_PAD    = 24
 
 # Threat meter skull icon (your new one)
-SKULL_ICON = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/skull_icon.png"
 SKULL_SIZE = 22   # auto-scaled again by bar height
 
 # Portrait quality guidance
