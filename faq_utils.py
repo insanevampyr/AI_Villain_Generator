@@ -1,5 +1,7 @@
 # faq_utils.py
 import streamlit as st
+import streamlit.components.v1 as components
+
 
 FAQ_ITEMS = [
     ("What is this?",
@@ -122,5 +124,38 @@ def render_share_mvp(st):
     with c3:
         # Copies the caption so they can paste anywhere (e.g., FB/Instagram)
         st.code(share_text, language=None)  # shows the text neatly for copy
+
+    st.caption("Tip: attach the villain card image you just saved.")
+
+def render_share_mvp(st, share_url: str, caption: str):
+    st.subheader("Share on social media")
+
+    col1, col2, col3 = st.columns([1, 1, 2])
+
+    with col1:
+        tw = (
+            "https://twitter.com/intent/tweet"
+            f"?text={caption}&url={share_url}"
+        )
+        st.link_button("Tweet", tw, use_container_width=True)
+
+    with col2:
+        fb = (
+            "https://www.facebook.com/sharer/sharer.php"
+            f"?u={share_url}"
+        )
+        st.link_button("Facebook", fb, use_container_width=True)
+
+    with col3:
+        # A real Copy button that writes to the clipboard via a tiny JS shim
+        if st.button("Copy caption", use_container_width=True):
+            components.html(
+                f"""
+                <script>
+                  navigator.clipboard.writeText({caption!r});
+                </script>
+                """,
+                height=0,
+            )
 
     st.caption("Tip: attach the villain card image you just saved.")

@@ -5,8 +5,7 @@ from dotenv import load_dotenv
 import streamlit as st
 load_dotenv(override=True)
 from config import get_style_prompt
-from faq_utils import render_socials
-
+from faq_utils import render_socials, render_share_mvp
 
 from pathlib import Path
 import re
@@ -856,8 +855,15 @@ if st.session_state.villain:
                     except Exception as e:
                         st.error(f"Save failed: {e}")
                 # --- Share MVP (X + Facebook) ---
-                from faq_utils import render_share_mvp
-                render_share_mvp(st)
+                from config import APP_URL, DEFAULT_SHARE_TEXT  # one-time import near your other config imports
+
+                # Figure out a shareable link; prefer the record’s public_url if you created one,
+                # otherwise fall back to the app homepage.
+                share_link = share_link if 'share_link' in locals() and share_link else APP_URL
+
+                # Render Tweet / Facebook / Copy buttons
+                render_share_mvp(st, share_link, DEFAULT_SHARE_TEXT)
+
 
 
 
