@@ -102,20 +102,22 @@ def render_share_mvp(st, share_link: str, default_text: str):
     """Tweet / Facebook / Copy caption (clipboard-safe in Streamlit)."""
     # Build prefilled caption
     caption = f"{default_text.strip()} {share_link}".strip()
+    # if a villain dict is in session, prepend the name
+    if 'villain' in st.session_state and st.session_state.villain:
+        v = st.session_state.villain
+        caption = f"{v.get('name','')} — {caption}"
+
 
     # Layout
     st.subheader("Share on social media")
     col1, col2, col3 = st.columns([1, 1, 1])
 
     # ---- Tweet + Facebook (simple links) ----
-    tweet_url = (
-        "https://twitter.com/intent/tweet"
-        f"?text={st.experimental_uri.encode_canonical_json(caption)[1:-1]}"  # quick URL-escape
-    )
-    fb_url = (
-        "https://www.facebook.com/sharer/sharer.php"
-        f"?u={st.experimental_uri.encode_canonical_json(share_link)[1:-1]}"
-    )
+    from urllib.parse import quote_plus
+
+    tweet_url = f"https://twitter.com/intent/tweet?text={quote_plus(caption)}"
+    fb_url = f"https://www.facebook.com/sharer/sharer.php?u={quote_plus(share_link)}"
+
 
     with col1:
         st.link_button("Tweet", tweet_url, use_container_width=True)
