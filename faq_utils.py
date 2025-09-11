@@ -95,3 +95,32 @@ def render_socials(st, assets_dir: str = "assets") -> None:
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
+
+def render_share_mvp(st):
+    """Simple share row for X + Facebook after user downloads a card."""
+    from urllib.parse import quote
+    try:
+        from config import APP_URL, DEFAULT_SHARE_TEXT
+    except Exception:
+        APP_URL = "https://example.com"
+        DEFAULT_SHARE_TEXT = "I just made a villain with #AIVillains — try it:"
+
+    share_text = f"{DEFAULT_SHARE_TEXT} {APP_URL}"
+    enc_text = quote(share_text)
+    enc_url  = quote(APP_URL)
+
+    x_url  = f"https://twitter.com/intent/tweet?text={enc_text}"
+    fb_url = f"https://www.facebook.com/sharer/sharer.php?u={enc_url}"
+
+    st.markdown("### Share on social media")
+
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        st.link_button("Tweet", x_url, use_container_width=True)
+    with c2:
+        st.link_button("Share to Facebook", fb_url, use_container_width=True)
+    with c3:
+        # Copies the caption so they can paste anywhere (e.g., FB/Instagram)
+        st.code(share_text, language=None)  # shows the text neatly for copy
+
+    st.caption("Tip: attach the villain card image you just saved.")

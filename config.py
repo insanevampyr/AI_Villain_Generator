@@ -61,6 +61,9 @@ APP_NAME = os.getenv("APP_NAME", "AI Villain Generator")
 OPENAI_MODEL_NAME  = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "dall-e-3")
 OPENAI_IMAGE_SIZE  = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
+APP_URL = os.getenv("APP_URL", "https://ai-villain-generator.streamlit.app")
+DEFAULT_SHARE_TEXT = os.getenv("DEFAULT_SHARE_TEXT", "I just made a villain with #AIVillains — try it:")
+
 
 # ===== Power Compendium =====
 COMPENDIUM = {

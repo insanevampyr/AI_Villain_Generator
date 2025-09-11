@@ -855,6 +855,10 @@ if st.session_state.villain:
                         st.success(f"Saved! Share link: {share_link}")
                     except Exception as e:
                         st.error(f"Save failed: {e}")
+                # --- Share MVP (X + Facebook) ---
+                from faq_utils import render_share_mvp
+                render_share_mvp(st)
+
 
 
             except Exception as e:
