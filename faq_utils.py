@@ -100,8 +100,8 @@ def render_socials(st, assets_dir: str = "assets") -> None:
 
 def render_share_mvp(st, share_link: str, default_text: str) -> None:
     """
-    Renders Tweet / Facebook / Copy caption buttons.
-    The Copy button matches Streamlit buttons and shows 'Copied!' feedback.
+    Tweet / Facebook / Copy caption (clipboard-safe in Streamlit).
+    Matches link_button alignment/size and shows 'Copied!' feedback.
     """
     # Prefill caption (optionally include villain name)
     caption = f"{default_text.strip()} {share_link}".strip()
@@ -122,27 +122,33 @@ def render_share_mvp(st, share_link: str, default_text: str) -> None:
     with col2:
         st.link_button("Facebook", fb_url, use_container_width=True)
 
-    # Copy button: styled to match Streamlit link_button and give visual feedback
+    # Copy button that visually matches Streamlit link_button
     with col3:
+        import streamlit.components.v1 as components
         components.html(
             f"""
-            <div style="display:flex;justify-content:flex-start">
-              <textarea id="share_txt"
-                        style="position:absolute;left:-10000px;top:-10000px">{caption}</textarea>
-              <button id="copy_btn"
-                style="
-                  width:100%;
-                  height:38px;
-                  padding:0 .75rem;
-                  border-radius:8px;
-                  border:1px solid #3b3c3d;
-                  background:#262730;
-                  color:#FFFFFF;
-                  font-weight:500;
-                  cursor:pointer;
-                ">
-                Copy caption
-              </button>
+            <style>
+              html, body {{ margin:0; padding:0; }}
+              #copy_btn {{
+                width:100%;
+                min-height:38px;
+                padding:0 .75rem;
+                border-radius:8px;
+                border:1px solid #3b3c3d;
+                background:#262730;
+                color:#fff;
+                font-weight:500;
+                display:inline-flex;
+                align-items:center;
+                justify-content:center;
+                cursor:pointer;
+              }}
+              #wrap {{ display:flex; justify-content:flex-start; }}
+              #share_txt {{ position:absolute; left:-10000px; top:-10000px; }}
+            </style>
+            <div id="wrap">
+              <textarea id="share_txt">{caption}</textarea>
+              <button id="copy_btn">Copy caption</button>
             </div>
             <script>
               const btn = document.getElementById('copy_btn');
@@ -150,18 +156,14 @@ def render_share_mvp(st, share_link: str, default_text: str) -> None:
               btn.addEventListener('click', () => {{
                 ta.select();
                 let ok = false;
-                try {{
-                  ok = document.execCommand('copy');
-                }} catch (e) {{}}
+                try {{ ok = document.execCommand('copy'); }} catch(e) {{}}
                 const old = btn.innerText;
                 btn.innerText = ok ? 'Copied!' : 'Copy failed';
-                btn.style.opacity = ok ? '0.9' : '1';
                 btn.disabled = true;
                 setTimeout(() => {{
                   btn.innerText = old;
                   btn.disabled = false;
-                  btn.style.opacity = '1';
-                }}, 1400);
+                }}, 1200);
               }});
             </script>
             """,
