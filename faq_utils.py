@@ -118,7 +118,7 @@ def render_share_mvp(st):
     with c1:
         st.link_button("Tweet", x_url, use_container_width=True)
     with c2:
-        st.link_button("Share to Facebook", fb_url, use_container_width=True)
+        st.link_button("Facebook", fb_url, use_container_width=True)
     with c3:
         # Copies the caption so they can paste anywhere (e.g., FB/Instagram)
         st.code(share_text, language=None)  # shows the text neatly for copy
