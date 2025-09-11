@@ -984,8 +984,11 @@ def _img_to_base64(path):
             return base64.b64encode(f.read()).decode()
     except Exception:
         return ""
-
+    
+# --- Footer socials ---
+from faq_utils import render_socials
 render_socials(st)
+
 
 
 # Dev debug panel (only for dev key holders)
