@@ -41,13 +41,32 @@ STYLE_THEMES = {
     "cyberpunk": {"accent": "#39ff14", "text": "#ffffff"},
 }
 
-# Output & assets
-CARD_FOLDER     = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_cards"
-IMAGE_FOLDER    = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_images"
-DEFAULT_IMAGE   = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/AI_Villain_logo.png"
-FONT_PATH       = "C:/Users/VampyrLee/Desktop/AI_Villain/fonts/ttf"
-LOG_FOLDER      = "C:/Users/VampyrLee/Desktop/AI_Villain/villain_logs"
-DOSSIER_TEXTURE = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/dossier_paper.png"
+from pathlib import Path
+
+# Base directory of the repo (where villain_utils.py lives)
+BASE_DIR = Path(__file__).resolve().parent
+
+# Use repo-relative folders
+ASSETS_DIR  = BASE_DIR / "assets"
+FONTS_DIR   = BASE_DIR / "fonts" / "ttf"
+IMAGES_DIR  = BASE_DIR / "villain_images"
+LOGS_DIR    = BASE_DIR / "villain_logs"
+
+# Files
+DEFAULT_IMAGE   = str(ASSETS_DIR / "AI_Villain_logo.png")
+DOSSIER_TEXTURE = str(ASSETS_DIR / "dossier_paper.png")
+QR_STAMP        = str(ASSETS_DIR / "qr_stamp.png")
+SKULL_ICON      = str(ASSETS_DIR / "skull_icon.png")
+
+# Folders
+IMAGE_FOLDER = str(IMAGES_DIR)
+FONT_PATH    = str(FONTS_DIR)
+LOG_FOLDER   = str(LOGS_DIR)
+
+# Ensure required folders exist (safe for both local + Cloud)
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # Footer / branding
 QR_STAMP      = "C:/Users/VampyrLee/Desktop/AI_Villain/assets/qr_stamp.png"   # <-- your QR file
