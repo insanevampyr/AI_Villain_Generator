@@ -98,35 +98,58 @@ def render_socials(st, assets_dir: str = "assets") -> None:
     """
     st.markdown(html, unsafe_allow_html=True)
 
-def render_share_mvp(st, share_url: str, caption: str):
-    st.subheader("Share on social media")
+def render_share_mvp(st, share_link: str, default_text: str):
+    """Tweet / Facebook / Copy caption (clipboard-safe in Streamlit)."""
+    # Build prefilled caption
+    caption = f"{default_text.strip()} {share_link}".strip()
 
-    col1, col2, col3 = st.columns([1, 1, 2])
+    # Layout
+    st.subheader("Share on social media")
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    # ---- Tweet + Facebook (simple links) ----
+    tweet_url = (
+        "https://twitter.com/intent/tweet"
+        f"?text={st.experimental_uri.encode_canonical_json(caption)[1:-1]}"  # quick URL-escape
+    )
+    fb_url = (
+        "https://www.facebook.com/sharer/sharer.php"
+        f"?u={st.experimental_uri.encode_canonical_json(share_link)[1:-1]}"
+    )
 
     with col1:
-        tw = (
-            "https://twitter.com/intent/tweet"
-            f"?text={caption}&url={share_url}"
-        )
-        st.link_button("Tweet", tw, use_container_width=True)
-
+        st.link_button("Tweet", tweet_url, use_container_width=True)
     with col2:
-        fb = (
-            "https://www.facebook.com/sharer/sharer.php"
-            f"?u={share_url}"
-        )
-        st.link_button("Facebook", fb, use_container_width=True)
+        st.link_button("Facebook", fb_url, use_container_width=True)
 
+    # ---- Copy caption (clipboard-safe) ----
+    # We render a tiny component with a hidden textarea and a button that uses
+    # execCommand('copy'), which works inside Streamlit’s sandbox.
     with col3:
-        # A real Copy button that writes to the clipboard via a tiny JS shim
-        if st.button("Copy caption", use_container_width=True):
-            components.html(
-                f"""
-                <script>
-                  navigator.clipboard.writeText({caption!r});
-                </script>
-                """,
-                height=0,
-            )
+        components.html(
+            f"""
+            <div style="display:flex;justify-content:flex-start">
+              <textarea id="share_txt" style="position:absolute;left:-10000px;top:-10000px">{caption}</textarea>
+              <button id="copy_btn"
+                      style="width:100%;padding:0.6rem 0.8rem;border-radius:0.5rem;background:#262730;color:white;border:1px solid #3b3c3d;cursor:pointer">
+                Copy caption
+              </button>
+            </div>
+            <script>
+              const btn = document.getElementById('copy_btn');
+              const ta  = document.getElementById('share_txt');
+              btn.addEventListener('click', () => {{
+                ta.select();
+                try {{
+                  document.execCommand('copy');
+                  window.parent.postMessage({{type: 'streamlit:setComponentValue', value: 'copied'}}, '*');
+                }} catch(e) {{
+                  window.parent.postMessage({{type: 'streamlit:setComponentValue', value: 'failed'}}, '*');
+                }}
+              }});
+            </script>
+            """,
+            height=60,
+        )
 
     st.caption("Tip: attach the villain card image you just saved.")
