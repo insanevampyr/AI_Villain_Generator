@@ -712,35 +712,41 @@ with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
 # --- Inline feedback link under the generator button (opens feedback expander) ---
-st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-st.markdown(
+import streamlit.components.v1 as components  # already imported at top, ok to keep
+
+# keep the small spacer you already have above
+components.html(
     """
     <div style="text-align:center;">
-      <a href="#"
-         onclick="
-           // STOP any navigation/new page
-           event.preventDefault(); event.stopPropagation();
-
-           const doc = document; // stay in same frame
-           const anchor = doc.getElementById('feedback');
-           if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
-
-           // Open the 'Send us Feedback' expander
-           const buttons = [...doc.querySelectorAll('button,[role=button]')];
-           const header = buttons.find(b => (b.innerText || '').toLowerCase().includes('send us feedback'));
-           if (header) {
-             const expanded = header.getAttribute('aria-expanded');
-             if (expanded === 'false' || expanded === null) { header.click(); }
-           }
-           return false;
-         "
+      <a id="feedback-link"
+         href="#"
          style="font-size:13px;color:#bbb;text-decoration:underline;cursor:pointer;">
         💬 Suggest a feature
       </a>
     </div>
+    <script>
+      (function(){
+        const link = document.getElementById('feedback-link');
+        if (!link) return;
+        link.addEventListener('click', function(e){
+          e.preventDefault(); e.stopPropagation();
+          const doc = window.parent.document;           // stay in the Streamlit app frame
+          const anchor = doc.getElementById('feedback');
+          if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
+          // Find and open the "Send us Feedback" expander
+          const buttons = Array.from(doc.querySelectorAll('button,[role=button]'));
+          const header = buttons.find(b => (b.innerText || '').toLowerCase().includes('send us feedback'));
+          if (header) {
+            const expanded = header.getAttribute('aria-expanded');
+            if (expanded === 'false' || expanded === null) { header.click(); }
+          }
+        });
+      })();
+    </script>
     """,
-    unsafe_allow_html=True,
+    height=60
 )
+
 
 
 if clicked_generate:
