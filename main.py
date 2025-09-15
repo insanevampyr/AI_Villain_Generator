@@ -716,15 +716,18 @@ st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align:center;">
-      <a href="javascript:void(0)"
+      <a href="#"
          onclick="
-           event.preventDefault();
-           const doc = window.parent.document;
+           // STOP any navigation/new page
+           event.preventDefault(); event.stopPropagation();
+
+           const doc = document; // stay in same frame
            const anchor = doc.getElementById('feedback');
            if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
-           // Try to auto-open the 'Send us Feedback' expander
-           const headers = [...doc.querySelectorAll('button, [role=button]')];
-           const header = headers.find(b => (b.innerText || '').trim().toLowerCase().includes('send us feedback'));
+
+           // Open the 'Send us Feedback' expander
+           const buttons = [...doc.querySelectorAll('button,[role=button]')];
+           const header = buttons.find(b => (b.innerText || '').toLowerCase().includes('send us feedback'));
            if (header) {
              const expanded = header.getAttribute('aria-expanded');
              if (expanded === 'false' || expanded === null) { header.click(); }
@@ -738,6 +741,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
 if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
