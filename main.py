@@ -711,25 +711,12 @@ cta_cols = st.columns([1, 2, 1])
 with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
-# --- Inline feedback link under the generator button (jumps + opens feedback expander) ---
+# --- Inline feedback link under the generator button (opens feedback expander) ---
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align:center;">
-      <a href="#feedback"
-         onclick="
-           const doc = window.parent.document;
-           const anchor = doc.getElementById('feedback');
-           if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
-           // Try to auto-open the 'Send us Feedback' expander
-           const headers = [...doc.querySelectorAll('button, [role=button]')];
-           const header = headers.find(b => (b.innerText || '').trim().toLowerCase().includes('send us feedback'));
-           if (header) { 
-             const expanded = header.getAttribute('aria-expanded');
-             if (expanded === 'false' || expanded === null) { header.click(); }
-           }
-           return false;
-         "
+      <a href="?open_feedback=1#feedback"
          style="font-size:13px;color:#bbb;text-decoration:underline;">
         💬 Suggest a feature
       </a>
@@ -737,8 +724,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-
 
 if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
@@ -1023,10 +1008,8 @@ with st.expander("❓ FAQ", expanded=False):
     st.markdown("**Will it make heroes too?**  \nNot yet. Hero mode is on the roadmap.")
     st.markdown("**Can I suggest features?**  \nYes. We welcome feedback and ideas.")
 
-# 👇 Anchor goes OUTSIDE the FAQ and immediately ABOVE the feedback expander
 st.markdown('<span id="feedback"></span>', unsafe_allow_html=True)
-
-with st.expander("💬 Send us Feedback", expanded=False):
+with st.expander("💬 Send us Feedback", expanded=_truthy(qp.get("open_feedback", ""))):
     embed_url = "https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
 
     # 1) Plain iframe (robust) — allows scrolling so long forms work
