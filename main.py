@@ -694,12 +694,18 @@ else:
     # make sure it isn't sticky when UBER is off
     st.session_state.pop("uber_ai_details", None)
 
+# ---------------------------
+# Detail view (only after a villain exists)
+# ---------------------------
+if st.session_state.villain:
+    villain = st.session_state.villain
+
 # --- Placeholder portrait preview before any villain exists ---
 if not st.session_state.get("villain"):
     st.markdown("### Villain Portrait")
     st.image(
         "assets/AI_Villain_logo.png",
-        caption="Placeholder — generate or upload/AI to replace",
+        caption="WARNING: PLACEHOLDER — generate or upload/AI to replace",
         use_container_width=True
     )
 
@@ -720,6 +726,7 @@ if clicked_generate:
     st.session_state.tried_generate = True
     st.session_state.ai_image = None
     st.session_state.card_file = None
+    st.session_state.villain_image = "assets/AI_Villain_logo.png"
     st.rerun()
 
 # Spacer below CTA to keep it visually dominant vs. secondary actions
@@ -777,244 +784,244 @@ if st.session_state.villain:
                     st.error("Something went wrong during AI generation.")
                     st.rerun()
 
-# Secondary, optional: upload own image
-st.caption("Or upload your own image instead:")
-uploaded_image = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
-if uploaded_image is not None:
-    st.session_state.villain_image = uploaded_image
-    st.session_state.ai_image = None
-    st.success("Uploaded portrait added!")
+                # Secondary, optional: upload own image
+                st.caption("Or upload your own image instead:")
+                uploaded_image = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
+                if uploaded_image is not None:
+                    st.session_state.villain_image = uploaded_image
+                    st.session_state.ai_image = None
+                    st.success("Uploaded portrait added!")
 
-    if not is_dev and free_used and credits <= 0:
-        st.info("You’re out of credits. Redeem or buy more to generate another AI portrait.")
+                    if not is_dev and free_used and credits <= 0:
+                        st.info("You’re out of credits. Redeem or buy more to generate another AI portrait.")
 
-    if st.button("🎨 AI Generate Villain Image"):
-        ok, msg = check_and_consume_free_or_credit(
-            user_email=norm_email,
-            device_id=st.session_state.device_id,
-            ip=st.session_state.client_ip,
-        )
-        if not ok and not is_dev:
-            st.markdown(
-                """
-                <div style="padding: 0.6em; background-color: #2b2b2b; border-radius: 6px;">
-                    <div style="font-size: 1.05em; color: #fff; margin-bottom: 6px;">🛑 {msg}</div>
-                    <div>
-                        <input style="padding:8px;border-radius:6px;border:1px solid #444;background:#111;color:#eee;width:220px" placeholder="Redeem code (coming soon)" disabled />
-                        <a href="https://buymeacoffee.com/ai_villain" target="_blank" style="margin-left:10px;display:inline-block">
-                            <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20Credits&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="42">
-                        </a>
-                    </div>
-                </div>
-                """.replace("{msg}", msg),
-                unsafe_allow_html=True
-            )
-        else:
-            with st.spinner("Summoning villain through the multiverse..."):
-                style = get_style_prompt(villain.get("theme"))
-                base_prompt = villain.get("origin", "")
-                image_prompt = f"{base_prompt}\n\nStyle: {style}".strip()
-
-                ai_path = generate_ai_portrait(villain | {"image_prompt": image_prompt})
-
-                if ai_path and os.path.exists(ai_path):
-                    st.session_state.ai_image = ai_path
-                    st.session_state.villain_image = ai_path
-                    st.success("AI-generated portrait added!")
-                    st.rerun()
-                else:
-                    st.error("Something went wrong during AI generation.")
-                    st.rerun()
-
-    # Priority: fresh AI image → uploaded → default
-    is_default_image = False
-    if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
-        display_source = _image_bytes(st.session_state.ai_image)
-    elif st.session_state.villain_image is not None:
-        display_source = st.session_state.villain_image
-    else:
-        display_source = _image_bytes("assets/AI_Villain_logo.png")
-        is_default_image = True
-
-
-    # text left, image right
-    col_meta, col_img = st.columns([2, 3])
-
-    with col_img:
-        if display_source:
-            caption_text = "WARNING DEFAULT IMAGE" if is_default_image else "Current Portrait"
-            st.image(display_source, caption=caption_text, use_container_width=True)
-
-
-            # --- Download portrait: AI image (direct) OR uploaded image (convert → PNG) ---
-            try:
-                import io, re
-                from PIL import Image
-
-                # Build portrait bytes for ALL cases (AI, uploaded, or default placeholder)
-                portrait_bytes = None
-                if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
-                    with open(st.session_state.ai_image, "rb") as _png:
-                        portrait_bytes = _png.read()
-                elif st.session_state.villain_image is not None:
-                    st.session_state.villain_image.seek(0)
-                    img = Image.open(st.session_state.villain_image).convert("RGBA")
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    portrait_bytes = buf.getvalue()
-                else:
-                    # Default placeholder
-                    portrait_bytes = _image_bytes("assets/AI_Villain_logo.png")
-
-                # Safe filename
-                slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
-
-                # --- First row (desktop): Save Portrait + Save Card ---
-                row1_left, row1_right = st.columns([1, 1])
-
-                with row1_left:
-                    st.download_button(
-                        label="💾 Save Portrait",
-                        data=portrait_bytes,
-                        file_name=f"{slug}_portrait.png",
-                        mime="image/png",
-                        key="btn_save_portrait",
-                        use_container_width=True,
-                    )
-
-                with row1_right:
-                    if st.button("💾 Save Card", key="btn_save_card", use_container_width=True):
-                        st.session_state.trigger_card_dl = True
-                        st.rerun()
-
-                # --- Second row: Save to My Villains (full width) ---
-                if st.button("💾 Save to My Villains", key="btn_save_villain_below", use_container_width=True):
-                    try:
-                        v = st.session_state.villain
-                        img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
-                        card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
-
-                        rec_id = create_villain_record(
-                            owner_email=norm_email,
-                            villain_json=v,
-                            style=v.get("theme", style_key),
-                            image_url=img_url,
-                            card_url=card_url,
-                            version=1,
+                    if st.button("🎨 AI Generate Villain Image"):
+                        ok, msg = check_and_consume_free_or_credit(
+                            user_email=norm_email,
+                            device_id=st.session_state.device_id,
+                            ip=st.session_state.client_ip,
                         )
-                        token = ensure_share_token(rec_id)
-                        rec = get_villain(rec_id)
-                        fields = rec.get("fields", {}) if rec else {}
-                        public_url = fields.get("public_url", "")
-                        share_link = public_url or f"(share token: {token})"
-                        st.success(f"Saved! Share link: {share_link}")
+                        if not ok and not is_dev:
+                            st.markdown(
+                                """
+                                <div style="padding: 0.6em; background-color: #2b2b2b; border-radius: 6px;">
+                                    <div style="font-size: 1.05em; color: #fff; margin-bottom: 6px;">🛑 {msg}</div>
+                                    <div>
+                                        <input style="padding:8px;border-radius:6px;border:1px solid #444;background:#111;color:#eee;width:220px" placeholder="Redeem code (coming soon)" disabled />
+                                        <a href="https://buymeacoffee.com/ai_villain" target="_blank" style="margin-left:10px;display:inline-block">
+                                            <img src="https://img.buymeacoffee.com/button-api/?text=Buy%20Credits&emoji=☕&slug=vampyrlee&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="42">
+                                        </a>
+                                    </div>
+                                </div>
+                                """.replace("{msg}", msg),
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            with st.spinner("Summoning villain through the multiverse..."):
+                                style = get_style_prompt(villain.get("theme"))
+                                base_prompt = villain.get("origin", "")
+                                image_prompt = f"{base_prompt}\n\nStyle: {style}".strip()
+
+                                ai_path = generate_ai_portrait(villain | {"image_prompt": image_prompt})
+
+                                if ai_path and os.path.exists(ai_path):
+                                    st.session_state.ai_image = ai_path
+                                    st.session_state.villain_image = ai_path
+                                    st.success("AI-generated portrait added!")
+                                    st.rerun()
+                                else:
+                                    st.error("Something went wrong during AI generation.")
+                                    st.rerun()
+
+                    # Priority: fresh AI image → uploaded → default
+                    is_default_image = False
+                    if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
+                        display_source = _image_bytes(st.session_state.ai_image)
+                    elif st.session_state.villain_image is not None:
+                        display_source = st.session_state.villain_image
+                    else:
+                        display_source = _image_bytes("assets/AI_Villain_logo.png")
+                        is_default_image = True
+
+
+                    # text left, image right
+                    col_meta, col_img = st.columns([2, 3])
+
+                    with col_img:
+                        if display_source:
+                            caption_text = "WARNING DEFAULT IMAGE" if is_default_image else "Current Portrait"
+                            st.image(display_source, caption=caption_text, use_container_width=True)
+
+
+                            # --- Download portrait: AI image (direct) OR uploaded image (convert → PNG) ---
+                            try:
+                                import io, re
+                                from PIL import Image
+
+                                # Build portrait bytes for ALL cases (AI, uploaded, or default placeholder)
+                                portrait_bytes = None
+                                if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
+                                    with open(st.session_state.ai_image, "rb") as _png:
+                                        portrait_bytes = _png.read()
+                                elif st.session_state.villain_image is not None:
+                                    st.session_state.villain_image.seek(0)
+                                    img = Image.open(st.session_state.villain_image).convert("RGBA")
+                                    buf = io.BytesIO()
+                                    img.save(buf, format="PNG")
+                                    portrait_bytes = buf.getvalue()
+                                else:
+                                    # Default placeholder
+                                    portrait_bytes = _image_bytes("assets/AI_Villain_logo.png")
+
+                                # Safe filename
+                                slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
+
+                                # --- First row (desktop): Save Portrait + Save Card ---
+                                row1_left, row1_right = st.columns([1, 1])
+
+                                with row1_left:
+                                    st.download_button(
+                                        label="💾 Save Portrait",
+                                        data=portrait_bytes,
+                                        file_name=f"{slug}_portrait.png",
+                                        mime="image/png",
+                                        key="btn_save_portrait",
+                                        use_container_width=True,
+                                    )
+
+                                with row1_right:
+                                    if st.button("💾 Save Card", key="btn_save_card", use_container_width=True):
+                                        st.session_state.trigger_card_dl = True
+                                        st.rerun()
+
+                                # --- Second row: Save to My Villains (full width) ---
+                                if st.button("💾 Save to My Villains", key="btn_save_villain_below", use_container_width=True):
+                                    try:
+                                        v = st.session_state.villain
+                                        img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
+                                        card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+
+                                        rec_id = create_villain_record(
+                                            owner_email=norm_email,
+                                            villain_json=v,
+                                            style=v.get("theme", style_key),
+                                            image_url=img_url,
+                                            card_url=card_url,
+                                            version=1,
+                                        )
+                                        token = ensure_share_token(rec_id)
+                                        rec = get_villain(rec_id)
+                                        fields = rec.get("fields", {}) if rec else {}
+                                        public_url = fields.get("public_url", "")
+                                        share_link = public_url or f"(share token: {token})"
+                                        st.success(f"Saved! Share link: {share_link}")
+                                    except Exception as e:
+                                        st.error(f"Save failed: {e}")
+                                # --- Share MVP (X + Facebook) ---
+                                from config import APP_URL, DEFAULT_SHARE_TEXT  # one-time import near your other config imports
+
+                                # Figure out a shareable link; prefer the record’s public_url if you created one,
+                                # otherwise fall back to the app homepage.
+                                share_link = share_link if 'share_link' in locals() and share_link else APP_URL
+
+                                # Render Tweet / Facebook / Copy buttons
+                                render_share_mvp(st, share_link, DEFAULT_SHARE_TEXT)
+
+
+
+
+                            except Exception as e:
+                                st.warning(f"Couldn’t offer portrait download: {e}")
+                        else:
+                            st.write("_No image available._")
+
+                    with col_meta:
+                        st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
+                        st.markdown(f"**Power:** {villain['power']}")
+                        st.markdown(f"**Weakness:** {villain['weakness']}")
+                        st.markdown(f"**Nemesis:** {villain['nemesis']}")
+                        st.markdown(f"**Lair:** {villain['lair']}")
+                        st.markdown(f"**Catchphrase:** *{villain['catchphrase']}*")
+
+                        crimes = villain.get("crimes", [])
+                        if isinstance(crimes, str):
+                            crimes = [crimes] if crimes else []
+                        st.markdown("**Crimes:**")
+                        for crime in crimes:
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
+
+                        st.markdown(
+                            f"**Threat Level:** {villain['threat_level']}" +
+                            (f" — {villain.get('threat_text')}" if villain.get('threat_text') else "")
+                        )
+
+                        st.markdown(f"**Faction:** {villain['faction']}")
+
+                    # --- Full-width Origin (wraps under the image) ---
+                    st.markdown("**Origin:**")
+                    st.markdown(villain["origin"])
+                    # ——— Reroll controls (single responsive set) ———
+                    if st.session_state.villain:
+                        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                        col_r1, col_r2 = st.columns([1, 1])
+
+                        with col_r1:
+                            if st.button("🎲 Reroll Name", key="btn_reroll_name", use_container_width=True):
+                                v = dict(st.session_state.villain)
+                                new_name = select_real_name(v.get("gender", "unknown"))
+                                v["name"] = new_name
+                                v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
+                                st.session_state.villain = v
+                                st.rerun()
+
+                        with col_r2:
+                            if st.button("📝 Reroll Origin", key="btn_reroll_origin", use_container_width=True):
+                                v = dict(st.session_state.villain)
+                                v["origin"] = generate_origin(
+                                    theme=v.get("theme", style_key),
+                                    power=v.get("power", ""),
+                                    crimes=v.get("crimes", []) or [],
+                                    alias=v.get("alias", ""),
+                                    real_name=v.get("name", "")
+                                )
+                                v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
+                                st.session_state.villain = v
+                                st.rerun()
+
+
+
+                # If the user clicked the button, build the card, then auto-download via a data URL
+                if st.session_state.get("trigger_card_dl"):
+                    import base64, re, os
+                    from streamlit.components.v1 import html as st_html
+
+                    villain = st.session_state.villain
+                    image_for_card = (
+                        st.session_state.ai_image
+                        or st.session_state.villain_image
+                        or "assets/AI_Villain_logo.png"
+                    )
+                    try:
+                        path = create_villain_card(villain, image_file=image_for_card, theme_name=villain.get("theme", style_key))
+                        with open(path, "rb") as f:
+                            b64 = base64.b64encode(f.read()).decode("utf-8")
+                        # Safe filename from villain name
+                        slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
+                        fname = f"{slug}_card.png"
+                        # Auto-click a hidden download link (one click total for the user)
+                        st_html(f'''
+                            <a id="auto_dl" href="data:image/png;base64,{b64}" download="{fname}" style="display:none">download</a>
+                            <script>setTimeout(()=>document.getElementById("auto_dl").click(), 50);</script>
+                        ''', height=0)
+                        st.success("Card generated. Your download should start automatically.")
                     except Exception as e:
-                        st.error(f"Save failed: {e}")
-                # --- Share MVP (X + Facebook) ---
-                from config import APP_URL, DEFAULT_SHARE_TEXT  # one-time import near your other config imports
+                        st.error(f"Card creation failed: {e}")
+                    finally:
+                        # Reset the trigger so it only fires once per click
+                        st.session_state.trigger_card_dl = False
+                        st.session_state.card_file = None
 
-                # Figure out a shareable link; prefer the record’s public_url if you created one,
-                # otherwise fall back to the app homepage.
-                share_link = share_link if 'share_link' in locals() and share_link else APP_URL
-
-                # Render Tweet / Facebook / Copy buttons
-                render_share_mvp(st, share_link, DEFAULT_SHARE_TEXT)
-
-
-
-
-            except Exception as e:
-                st.warning(f"Couldn’t offer portrait download: {e}")
-        else:
-            st.write("_No image available._")
-
-    with col_meta:
-        st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
-        st.markdown(f"**Power:** {villain['power']}")
-        st.markdown(f"**Weakness:** {villain['weakness']}")
-        st.markdown(f"**Nemesis:** {villain['nemesis']}")
-        st.markdown(f"**Lair:** {villain['lair']}")
-        st.markdown(f"**Catchphrase:** *{villain['catchphrase']}*")
-
-        crimes = villain.get("crimes", [])
-        if isinstance(crimes, str):
-            crimes = [crimes] if crimes else []
-        st.markdown("**Crimes:**")
-        for crime in crimes:
-            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
-
-        st.markdown(
-            f"**Threat Level:** {villain['threat_level']}" +
-            (f" — {villain.get('threat_text')}" if villain.get('threat_text') else "")
-        )
-
-        st.markdown(f"**Faction:** {villain['faction']}")
-
-    # --- Full-width Origin (wraps under the image) ---
-    st.markdown("**Origin:**")
-    st.markdown(villain["origin"])
-    # ——— Reroll controls (single responsive set) ———
-    if st.session_state.villain:
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        col_r1, col_r2 = st.columns([1, 1])
-
-        with col_r1:
-            if st.button("🎲 Reroll Name", key="btn_reroll_name", use_container_width=True):
-                v = dict(st.session_state.villain)
-                new_name = select_real_name(v.get("gender", "unknown"))
-                v["name"] = new_name
-                v["origin"] = _normalize_origin_names(v.get("origin", ""), new_name, v.get("alias", ""))
-                st.session_state.villain = v
-                st.rerun()
-
-        with col_r2:
-            if st.button("📝 Reroll Origin", key="btn_reroll_origin", use_container_width=True):
-                v = dict(st.session_state.villain)
-                v["origin"] = generate_origin(
-                    theme=v.get("theme", style_key),
-                    power=v.get("power", ""),
-                    crimes=v.get("crimes", []) or [],
-                    alias=v.get("alias", ""),
-                    real_name=v.get("name", "")
-                )
-                v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
-                st.session_state.villain = v
-                st.rerun()
-
-
-
-# If the user clicked the button, build the card, then auto-download via a data URL
-if st.session_state.get("trigger_card_dl"):
-    import base64, re, os
-    from streamlit.components.v1 import html as st_html
-
-    villain = st.session_state.villain
-    image_for_card = (
-        st.session_state.ai_image
-        or st.session_state.villain_image
-        or "assets/AI_Villain_logo.png"
-    )
-    try:
-        path = create_villain_card(villain, image_file=image_for_card, theme_name=villain.get("theme", style_key))
-        with open(path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        # Safe filename from villain name
-        slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
-        fname = f"{slug}_card.png"
-        # Auto-click a hidden download link (one click total for the user)
-        st_html(f'''
-            <a id="auto_dl" href="data:image/png;base64,{b64}" download="{fname}" style="display:none">download</a>
-            <script>setTimeout(()=>document.getElementById("auto_dl").click(), 50);</script>
-        ''', height=0)
-        st.success("Card generated. Your download should start automatically.")
-    except Exception as e:
-        st.error(f"Card creation failed: {e}")
-    finally:
-        # Reset the trigger so it only fires once per click
-        st.session_state.trigger_card_dl = False
-        st.session_state.card_file = None
-
-st.markdown("---")
+                st.markdown("---")
 # --- FAQ (above feedback) ---
 with st.expander("❓ FAQ", expanded=False):
     st.markdown("**What is this?**  \nA tool that makes unique villains with names, powers, crimes, origins, and portraits.")
