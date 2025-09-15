@@ -711,6 +711,21 @@ cta_cols = st.columns([1, 2, 1])
 with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
+# --- Inline feedback link under the generator button ---
+st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div style="text-align:center;">
+      <a href="https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
+         target="_blank"
+         style="font-size:13px;color:#bbb;text-decoration:underline;">
+        💬 Suggest a feature
+      </a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
     st.session_state.tried_generate = True
