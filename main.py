@@ -595,7 +595,7 @@ def refresh_credits() -> int:
 def thanks_for_support_if_any():
     if st.session_state.get("latest_credit_delta", 0) and not st.session_state.get("saw_thanks", True):
         st.success(
-            f"🎉 Thanks for your support! We just added **{st.session_state.latest_credit_delta}** credits to your account."
+            f"🎉 Thanks for your support! We just added credits to your account."
         )
         st.session_state.saw_thanks = True
 
