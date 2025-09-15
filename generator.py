@@ -966,7 +966,7 @@ def _origin_prompt(theme: str, power: str, crimes: List[str], alias: str, real_n
     key = (theme or "").strip().lower()
     profile = THEME_PROFILES.get(key, THEME_PROFILES.get("dark", {}))
     tone_text = profile.get("tone", "cinematic")
-    style_line = f"Theme: {theme}. Tone: {tone_text}."
+    style_line = f"Theme: {theme}. Tone: {profile.get('tone', 'cinematic')}."
 
     crime_line = "Backstory context (do NOT list in paragraph): " + ", ".join(crimes) + "."
     rules = (
@@ -1308,7 +1308,7 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
         messages=[{"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
                   {"role": "user", "content": prompt}],
         max_tokens=360,
-        temperature=profile["temperature"],
+        temperature=profile.get("temperature", 0.9)
         presence_penalty=0.6,
         frequency_penalty=0.7,
         attempts=2,
@@ -1460,7 +1460,7 @@ def _ai_threat_text(theme: str, threat_level: str, power_line: str) -> str:
         messages=[{"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
                   {"role": "user", "content": prompt}],
         max_tokens=360,
-        temperature=profile["temperature"],
+        temperature=profile.get("temperature", 0.9)
         presence_penalty=0.6,
         frequency_penalty=0.7,
         attempts=2,
