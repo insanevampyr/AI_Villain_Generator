@@ -268,6 +268,66 @@ THEME_PROFILES: Dict[str, dict] = {
     },
 }
 
+# --- Add profiles for the current compendium themes (prevents dark fallback)
+THEME_PROFILES.update({
+    "elemental": {
+        "temperature": 0.90,
+        "encourage": ["fire", "ice", "stone", "storm", "water", "wind", "lightning", "roots", "quakes"],
+        "ban": ["shadow", "umbral", "void", "gloom", "eclipse", "curse", "ritual"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+    },
+    "energy": {
+        "temperature": 0.92,
+        "encourage": ["plasma", "ion", "voltage", "magnetism", "frequency", "particle beams", "force fields"],
+        "ban": ["shadow", "umbral", "void", "curse", "necromancy", "ritual"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.40, "High": 0.40, "Extreme": 0.10},
+    },
+    "biological": {
+        "temperature": 0.88,
+        "encourage": ["mutation", "spores", "venom", "parasite", "regeneration", "chitin", "bone", "sinew"],
+        "ban": ["shadow", "umbral", "void", "laser", "plasma", "holy"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+    },
+    "psychic": {
+        "temperature": 0.90,
+        "encourage": ["telepathy", "telekinesis", "clairvoyance", "illusion", "dream", "aura", "mind control (tight)"],
+        "ban": ["shadow", "umbral", "fire", "acid", "gadgets"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+    },
+    "chemical": {
+        "temperature": 0.88,
+        "encourage": ["toxins", "acid", "corrosion", "solvent mists", "combustion", "adhesives", "gas clouds"],
+        "ban": ["shadow", "umbral", "void", "holy", "astral"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+    },
+    "chaos": {
+        "temperature": 0.98,
+        "encourage": ["probability", "entropy", "anomaly", "glitch", "randomization", "non-Euclidean momentum"],
+        "ban": ["order", "precise plan", "clockwork"],
+        "threat_dist": {"Laughably Low": 0.05, "Moderate": 0.35, "High": 0.45, "Extreme": 0.15},
+    },
+    "tragic": {
+        "temperature": 0.82,
+        "encourage": ["fate", "regret", "noir rain", "melancholy", "sacrifice", "slow burn"],
+        "ban": ["goofy", "camp", "shadow/umbral as a power name"],
+        "threat_dist": {"Laughably Low": 0.05, "Moderate": 0.45, "High": 0.40, "Extreme": 0.10},
+    },
+    "magical": {
+        "temperature": 0.88,
+        "encourage": ["arcane", "runes", "wards", "summoning", "enchantment", "sigils", "conjuration", "wizardry"],
+        "ban": ["shadow", "umbral", "void", "plasma", "cyber"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+    },
+    "deranged": {
+        "temperature": 0.94,
+        "encourage": ["manic", "obsession", "improvised", "reckless", "grindhouse", "unhinged"],
+        "ban": ["elegant", "surgical", "shadow/umbral as a power name"],
+        "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.40, "High": 0.40, "Extreme": 0.10},
+    },
+    # "satirical" already exists in THEME_PROFILES
+})
+
+
 def _threat_text_from_level(theme: str, threat_level: str, power_line: str) -> str:
     """
     Lightweight, token-free threat text for AI Wildcard powers.
