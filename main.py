@@ -719,6 +719,7 @@ with cta_cols[1]:
 
 if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
+    st.session_state.tried_generate = True
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
@@ -727,12 +728,10 @@ if clicked_generate:
 # Spacer below CTA to keep it visually dominant vs. secondary actions
 st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-
-# Only save if generation succeeded
-if st.session_state.villain:
-    save_villain_to_log(st.session_state.villain)
-else:
+# Only warn if user actually tried to generate but villain is still empty
+if st.session_state.get("tried_generate") and not st.session_state.get("villain"):
     st.warning("Villain generation returned no data. Please try again.")
+
 
 # ---------------------------
 # Helpers
