@@ -709,12 +709,24 @@ if image_option == "Upload Your Own":
 # ---------------------------
 # Generate villain details
 # ---------------------------
-if st.button("Generate Villain Details"):
+# Spacer above CTA for visual separation
+st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+# Center the primary CTA (mobile-safe; no layout shift)
+cta_cols = st.columns([1, 2, 1])
+with cta_cols[1]:
+    clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
+
+if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
     st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
     st.rerun()
+
+# Spacer below CTA to keep it visually dominant vs. secondary actions
+st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
 
 # Only save if generation succeeded
 if st.session_state.villain:
