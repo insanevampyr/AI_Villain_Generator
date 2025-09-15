@@ -824,11 +824,18 @@ if st.session_state.villain:
                     with open(st.session_state.ai_image, "rb") as _png:
                         portrait_bytes = _png.read()
                 elif st.session_state.villain_image is not None:
-                    st.session_state.villain_image.seek(0)
-                    img = Image.open(st.session_state.villain_image).convert("RGBA")
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    portrait_bytes = buf.getvalue()
+                    if isinstance(st.session_state.villain_image, str):
+                        # Path string (AI-generated or placeholder file)
+                        with open(st.session_state.villain_image, "rb") as f:
+                            portrait_bytes = f.read()
+                    else:
+                        # File-like object (from uploader)
+                        st.session_state.villain_image.seek(0)
+                        img = Image.open(st.session_state.villain_image).convert("RGBA")
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        portrait_bytes = buf.getvalue()
+
                 else:
                     # Default placeholder
                     portrait_bytes = _image_bytes("assets/AI_Villain_logo.png")
