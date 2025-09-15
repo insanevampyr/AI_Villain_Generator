@@ -694,6 +694,16 @@ else:
     # make sure it isn't sticky when UBER is off
     st.session_state.pop("uber_ai_details", None)
 
+# --- Placeholder portrait preview before any villain exists ---
+if not st.session_state.get("villain"):
+    st.markdown("### Villain Portrait")
+    st.image(
+        "assets/AI_Villain_logo.png",
+        caption="Placeholder — generate or upload/AI to replace",
+        use_container_width=True
+    )
+
+
 # ---------------------------
 # Generate villain details
 # ---------------------------
