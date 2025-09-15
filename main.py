@@ -711,13 +711,17 @@ cta_cols = st.columns([1, 2, 1])
 with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
-# --- Inline feedback link under the generator button ---
+# --- Inline feedback link under the generator button (jumps to bottom expander) ---
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align:center;">
-      <a href="https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
-         target="_blank"
+      <a href="#feedback"
+         onclick="
+           const el = window.parent.document.getElementById('feedback');
+           if (el) { el.scrollIntoView({behavior:'smooth', block:'start'}); }
+           return false;
+         "
          style="font-size:13px;color:#bbb;text-decoration:underline;">
         💬 Suggest a feature
       </a>
@@ -725,6 +729,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
 if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
@@ -1008,6 +1013,7 @@ with st.expander("❓ FAQ", expanded=False):
     st.markdown("**What if the AI makes something weird?**  \nHit regenerate — weird can be great.")
     st.markdown("**Will it make heroes too?**  \nNot yet. Hero mode is on the roadmap.")
     st.markdown("**Can I suggest features?**  \nYes. We welcome feedback and ideas.")
+    st.markdown('<span id="feedback"></span>', unsafe_allow_html=True)
 with st.expander("💬 Send us Feedback", expanded=False):
     embed_url = "https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
 
