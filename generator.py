@@ -178,34 +178,50 @@ def _draw_nonrepeating(kind: str, role: str) -> str:
 
 # --------------------------- Theme profiles ---------------------------
 THEME_PROFILES: Dict[str, dict] = {
-    "funny": {
-        "temperature": 0.98,
-        "encourage": ["prank", "slapstick", "gag", "spoof", "ridiculous", "banana", "rubber chicken", "confetti",
-                      "prop comedy", "improv", "farce", "pie", "whoopee", "balloon"],
-        "ban": ["quantum", "nanotech", "plasma", "neural", "cyber", "singularity", "neutrino", "lattice"],
-        "tech_allow_ratio": 0.12,
-        "threat_dist": {"Laughably Low": 0.60, "Moderate": 0.30, "High": 0.10, "Extreme": 0.00},
-        "variety_prompts": [
-            "Lean into slapstick physics or improbable gags that sometimes backfire.",
-            "Make the motive comedic or petty; the villain often defeats themselves.",
-            "Prefer analog props and clownish contraptions over technology."
-        ],
-        "tone": "witty, playful, deadpan humor, punchy sentences"
-    },
-    "satirical": {
-        "temperature": 0.98,
-        "encourage": ["parody", "irony", "meme", "spoof", "absurd", "bureaucracy", "red tape", "clickbait",
-                      "propaganda", "inflated ego", "farce"],
-        "ban": ["quantum", "nanotech", "plasma", "neural", "singularity"],
-        "tech_allow_ratio": 0.15,
-        "threat_dist": {"Laughably Low": 0.50, "Moderate": 0.35, "High": 0.15, "Extreme": 0.00},
-        "variety_prompts": [
-            "Skewer institutions, brands, or trends without naming real companies.",
-            "Let the crimes be pranks with social commentary.",
-            "Keep the tone clever and self-aware."
-        ],
-        "tone": "arch, ironic, punchy commentary"
-    },
+        "funny": {
+            "temperature": 0.98,
+            # Push pure slapstick / cartoon physics
+            "encourage": [
+                "slapstick", "cartoon physics", "pratfall", "gag", "spoof",
+                "rubber chicken", "banana peel", "seltzer", "confetti cannon",
+                "balloon animal", "anvil gag", "oversized magnet", "spring boots"
+            ],
+            # Nuke office-y / bureaucratic / grim tech jargon
+            "ban": [
+                "bureaucracy", "paperwork", "red tape", "audit", "compliance",
+                "quantum", "nanotech", "plasma", "neural", "cyber", "singularity", "neutrino", "lattice",
+                "gore", "grim"
+            ],
+            "threat_dist": {"Laughably Low": 0.65, "Moderate": 0.30, "High": 0.05, "Extreme": 0.00},
+            "variety_prompts": [
+                "Favor prop comedy and improbable gag devices over technology.",
+                "Let mishaps and backfires be part of the fun.",
+                "Keep descriptions punchy and visual—think cartoon mayhem."
+            ],
+            "tone": "witty, playful, deadpan humor, punchy sentences"
+        },
+        "satirical": {
+            "temperature": 0.96,
+            # Still about parody/commentary, but steer it toward silly spectacle
+            "encourage": [
+                "parody", "meme magic", "spoof", "absurd stunt", "flash mob prank",
+                "fake ad campaign", "cardboard props", "cosplay disguise",
+                "rubber stamp gag", "propaganda spoof", "trend hijack"
+            ],
+            # Explicitly de-emphasize bureaucratic fixation
+            "ban": [
+                "paperwork", "red tape", "compliance", "audit", "budget hearing",
+                "gore", "grim sermon"
+            ],
+            "threat_dist": {"Laughably Low": 0.55, "Moderate": 0.35, "High": 0.10, "Extreme": 0.00},
+            "variety_prompts": [
+                "Lampoon ideas and trends without naming real companies or people.",
+                "Prefer flamboyant public pranks and spectacle over policy jokes.",
+                "Tone should be clever and self-aware with visual gags."
+            ],
+            "tone": "arch, irreverent, cheeky lampoon"
+        },
+
     "dark": {
         "temperature": 0.86,
         "encourage": ["dread", "chiaroscuro", "wither", "void", "decay", "entropy", "curse", "sigil", "mirror", "hush"],
@@ -606,13 +622,15 @@ def _normalize_origin_names(text: str, real_name: str, alias: str) -> str:
 def _infer_family(power: str) -> tuple[str, Optional[str]]:
     p = (power or "").lower()
 
-    # keep the quick keyword checks (these already exist in your file)
     if "shadow" in p or "night" in p or "gloom" in p:
         return "shadow", None
     if "electro" in p or "lightning" in p or "ion" in p or "plasma" in p:
         return "tech", None
 
-    # add any other tiny buckets you still use in _crime_bans_and_style
+    # NEW: slapstick cues map to the "funny" family
+    if any(k in p for k in ("slapstick", "gag", "rubber", "banana", "whoopee", "confetti", "seltzer", "anvil", "clown")):
+        return "funny", None
+
     if "plant" in p or "vine" in p:
         return "nature", None
     if "fire" in p or "flame" in p or "pyro" in p:
@@ -839,12 +857,13 @@ FAMILY_SYNONYMS = {
         "underworld tolls charged on river crossings",
     ],
     "satirical": [
-        "paperwork sieges that shut down hospitals",
-        "sponsor‑mandated evacuations as ad campaigns",
-        "ratio mobs hired to paralyze juries",
-        "contract switches that repossess public parks",
-        "brand excommunications of city departments",
+        "confetti avalanches that jam turnstiles",
+        "banana-slick evacuations of corporate lobbies",
+        "rubber-anvil air drops on armored convoys",
+        "seltzer flood drills that short out alarms",
+        "sticker nets that cocoon security teams",
     ],
+
     "air": [
         "hurricane‑force terror strikes",
         "weaponized sonic booms over cities",
@@ -859,9 +878,9 @@ def _infer_family_soft(power: str) -> Optional[str]:
     if "shadow" in p or "night" in p or "gloom" in p: return "shadow"
     if any(k in p for k in ("fire","flame","pyro")): return "fire"
     if any(k in p for k in ("electro","lightning","ion","plasma")): return "tech"
-    # add other obvious families as you like...
+    # NEW: slapstick cues
+    if any(k in p for k in ("slapstick","gag","rubber","banana","whoopee","confetti","seltzer","anvil","clown")): return "funny"
     return None
-
 
 
 def _crime_bans_and_style(power: str, theme: str) -> str:
