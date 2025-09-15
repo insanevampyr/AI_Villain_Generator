@@ -41,18 +41,45 @@ def set_uber_enabled_runtime(value: bool) -> None:
 
 def get_theme_description(theme_key: str) -> str:
     """
-    Return a short description for a theme. If not present, fall back to:
-    'Tier: <tier> • <N> powers'
+    Return a short description for the theme shown under the select box.
+
+    Priority:
+      1) Theme's explicit `description` (if present in COMPENDIUM)
+      2) STYLE_PROMPTS[theme_key]  (your one-liner art/style text)
+      3) Fallback: "Tier: <tier> • <N> powers"
     """
-    key = (theme_key or "").strip().lower()
-    for t in COMPENDIUM.get("themes", []):
-        if (t.get("key") or "").strip().lower() == key:
-            desc = (t.get("description") or "").strip()
-            if desc:
-                return desc
-            powers = t.get("powers") or []
-            tier = (t.get("tier") or "core").strip().lower()
-            return f"Tier: {tier.title()} • {len(powers)} powers"
+    key = normalize_style_key(theme_key)
+    # Find the theme object by key
+    t = None
+    try:
+        for item in (COMPENDIUM.get("themes") or []):
+            if (item or {}).get("key") == key:
+                t = item
+                break
+    except Exception:
+        t = None
+
+    # 1) Explicit theme description (if you ever add it to COMPENDIUM)
+    if t:
+        desc = (t.get("description") or "").strip()
+        if desc:
+            return desc
+
+    # 2) Fall back to the style prompt one-liner for this theme
+    try:
+        sp = (STYLE_PROMPTS.get(key) or "").strip()
+        if sp:
+            return sp
+    except Exception:
+        pass
+
+    # 3) Final fallback: tier + number of powers (what you were seeing)
+    if t:
+        tier = (t.get("tier") or "").strip()
+        powers = t.get("powers") or []
+        if tier or powers:
+            return f"Tier: {tier.title() if tier else 'Unknown'} • {len(powers)} powers"
+
     return "Theme details unavailable"
 
 # Set of Uber-only theme keys and a helper
