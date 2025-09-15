@@ -647,7 +647,18 @@ def _ai_power_prompt(theme: str, encourage: List[str], ban: List[str]) -> str:
         "Constraints:\n- 5–9 words after the em dash; under 100 chars total.\n"
         "- Use an em dash (—), not a hyphen.\n- No real names, no quotes, no lists, no numbers, no emojis.\n- Fit the theme; obey 'Avoid' terms.\n"
     )
-    return f"{style_line}\n{rules}"
+
+    # 🔽 Easiest variety nudge: when theme is elemental, explicitly steer away from 'fire'
+    variety = ""
+    if (theme or "").strip().lower() == "elemental":
+        variety = (
+            "\nVariety rules for ELEMENTAL:\n"
+            "- Do NOT choose fire unless the concept is unusually novel.\n"
+            "- Prefer non-fire forces: water, earth, wind/air, ice, storm, lightning, roots/vines, stone/metal, sand.\n"
+            "- If heat appears, avoid naming it 'fire' (e.g., magma, steam, geothermal) and name it accordingly."
+        )
+
+    return f"{style_line}\n{rules}{variety}"
 
 def _strict_power_guard(power_line: str) -> str:
     """
