@@ -268,63 +268,72 @@ THEME_PROFILES: Dict[str, dict] = {
     },
 }
 
-# --- Add profiles for the current compendium themes (prevents dark fallback)
+# --- Add/override profiles for current compendium themes (prevents dark fallback)
 THEME_PROFILES.update({
     "elemental": {
         "temperature": 0.90,
         "encourage": ["fire", "ice", "stone", "storm", "water", "wind", "lightning", "roots", "quakes"],
         "ban": ["shadow", "umbral", "void", "gloom", "eclipse", "curse", "ritual"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+        "tone": "mythic-cinematic",
     },
     "energy": {
         "temperature": 0.92,
         "encourage": ["plasma", "ion", "voltage", "magnetism", "frequency", "particle beams", "force fields"],
         "ban": ["shadow", "umbral", "void", "curse", "necromancy", "ritual"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.40, "High": 0.40, "Extreme": 0.10},
+        "tone": "sleek hi-tech",
     },
     "biological": {
         "temperature": 0.88,
         "encourage": ["mutation", "spores", "venom", "parasite", "regeneration", "chitin", "bone", "sinew"],
         "ban": ["shadow", "umbral", "void", "laser", "plasma", "holy"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+        "tone": "gritty bio-thriller",
     },
     "psychic": {
         "temperature": 0.90,
         "encourage": ["telepathy", "telekinesis", "clairvoyance", "illusion", "dream", "aura", "mind control (tight)"],
         "ban": ["shadow", "umbral", "fire", "acid", "gadgets"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+        "tone": "eerie surreal",
     },
     "chemical": {
         "temperature": 0.88,
         "encourage": ["toxins", "acid", "corrosion", "solvent mists", "combustion", "adhesives", "gas clouds"],
         "ban": ["shadow", "umbral", "void", "holy", "astral"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+        "tone": "industrial hazard",
     },
     "chaos": {
         "temperature": 0.98,
         "encourage": ["probability", "entropy", "anomaly", "glitch", "randomization", "non-Euclidean momentum"],
         "ban": ["order", "precise plan", "clockwork"],
         "threat_dist": {"Laughably Low": 0.05, "Moderate": 0.35, "High": 0.45, "Extreme": 0.15},
+        "tone": "unpredictable trickster",
     },
     "tragic": {
         "temperature": 0.82,
         "encourage": ["fate", "regret", "noir rain", "melancholy", "sacrifice", "slow burn"],
         "ban": ["goofy", "camp", "shadow/umbral as a power name"],
         "threat_dist": {"Laughably Low": 0.05, "Moderate": 0.45, "High": 0.40, "Extreme": 0.10},
+        "tone": "melancholic gothic",
     },
     "magical": {
         "temperature": 0.88,
-        "encourage": ["arcane", "runes", "wards", "summoning", "enchantment", "sigils", "conjuration", "wizardry"],
+        "encourage": ["arcane", "runes", "wards", "summoning", "enchantment", "sigils", "conjuration"],
         "ban": ["shadow", "umbral", "void", "plasma", "cyber"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.45, "High": 0.35, "Extreme": 0.10},
+        "tone": "arcane epic",
     },
     "deranged": {
         "temperature": 0.94,
         "encourage": ["manic", "obsession", "improvised", "reckless", "grindhouse", "unhinged"],
         "ban": ["elegant", "surgical", "shadow/umbral as a power name"],
         "threat_dist": {"Laughably Low": 0.10, "Moderate": 0.40, "High": 0.40, "Extreme": 0.10},
+        "tone": "grindhouse frenzy",
     },
-    # "satirical" already exists in THEME_PROFILES
+    # "satirical" already exists in THEME_PROFILES with its own tone
 })
 
 
@@ -954,8 +963,11 @@ def ensure_crime_mentions_in_origin(origin: str, crimes: List[str]) -> bool:
     return any(c.lower() in o for c in crimes)
 
 def _origin_prompt(theme: str, power: str, crimes: List[str], alias: str, real_name: str) -> str:
-    profile = THEME_PROFILES.get(theme, THEME_PROFILES["dark"])
-    style_line = f"Theme: {theme}. Tone: {profile['tone']}."
+    key = (theme or "").strip().lower()
+    profile = THEME_PROFILES.get(key, THEME_PROFILES.get("dark", {}))
+    tone_text = profile.get("tone", "cinematic")
+    style_line = f"Theme: {theme}. Tone: {tone_text}."
+
     crime_line = "Backstory context (do NOT list in paragraph): " + ", ".join(crimes) + "."
     rules = (
         "Write a single-paragraph origin (3–5 sentences, ~70–110 words). "
