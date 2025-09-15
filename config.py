@@ -40,45 +40,32 @@ def set_uber_enabled_runtime(value: bool) -> None:
     _UBER_ENABLED_RUNTIME = bool(value)
 
 def get_theme_description(theme_key: str) -> str:
-    """
-    Return a short description for the theme shown under the select box.
+    key = (theme_key or "").strip().lower()
 
-    Priority:
-      1) Theme's explicit `description` (if present in COMPENDIUM)
-      2) STYLE_PROMPTS[theme_key]  (your one-liner art/style text)
-      3) Fallback: "Tier: <tier> • <N> powers"
-    """
-    key = normalize_style_key(theme_key)
-    # Find the theme object by key
-    t = None
-    try:
-        for item in (COMPENDIUM.get("themes") or []):
-            if (item or {}).get("key") == key:
-                t = item
-                break
-    except Exception:
-        t = None
+    # 1) If a theme object carries its own 'description', use it
+    for t in COMPENDIUM.get("themes", []):
+        if (t.get("key") or "").strip().lower() == key:
+            desc = (t.get("description") or "").strip()
+            if desc:
+                return desc
+            break
 
-    # 1) Explicit theme description (if you ever add it to COMPENDIUM)
-    if t:
-        desc = (t.get("description") or "").strip()
-        if desc:
-            return desc
+    # 2) Otherwise prefer our power-focused one-liners
+    desc = (THEME_DESCRIPTIONS.get(key) or "").strip()
+    if desc:
+        return desc
 
-    # 2) Fall back to the style prompt one-liner for this theme
-    try:
-        sp = (STYLE_PROMPTS.get(key) or "").strip()
-        if sp:
-            return sp
-    except Exception:
-        pass
+    # 3) Fall back to STYLE_PROMPTS (art direction) if nothing else exists
+    sp = (STYLE_PROMPTS.get(key) or "").strip()
+    if sp:
+        return sp
 
-    # 3) Final fallback: tier + number of powers (what you were seeing)
-    if t:
-        tier = (t.get("tier") or "").strip()
-        powers = t.get("powers") or []
-        if tier or powers:
-            return f"Tier: {tier.title() if tier else 'Unknown'} • {len(powers)} powers"
+    # 4) Final fallback: tier + power count
+    for t in COMPENDIUM.get("themes", []):
+        if (t.get("key") or "").strip().lower() == key:
+            tier = (t.get("tier") or "core").strip().lower()
+            powers = t.get("powers") or []
+            return f"Tier: {tier.title()} • {len(powers)} powers"
 
     return "Theme details unavailable"
 
@@ -1452,6 +1439,28 @@ COMPENDIUM = {
         },     # close Annihilation theme
     ]          # close themes list
 }              # close COMPENDIUM
+
+# ===== User-facing theme descriptions (one-liners) =====
+THEME_DESCRIPTIONS = {
+    # core
+    "elemental":   "Control classical elements and weather—fire, water, earth, air; terrain shaping and storms.",
+    "energy":      "Command forces and fields—electricity, magnetism, kinetic/thermal energy, light and gravity tricks.",
+    "biological":  "Manipulate biology—flesh, bone, microbes and mutation; venoms, regeneration, swarms.",
+    "psychic":     "Mental powers—telepathy, telekinesis, illusion, emotion control and memory edits.",
+    "chemical":    "Acids, toxins, corrosion and contamination; dissolve, poison or transmute matter.",
+    "chaos":       "Warp probability and causality—misdirection, explosive randomness and luck theft.",
+    "satirical":   "Weaponized culture—parody, propaganda, mimicry and viral memetic influence.",
+    "tragic":      "Curses and misfortune—shadow veils, grief auras, doom omens and fate-binding.",
+    "magical":     "Magery, wizardry, magic, arcane rituals, runes, circles, summoning, enchantments and protective wards.",
+    "deranged":    "Unhinged brutality—pain-fueled boosts, improvised weapons and grisly body horror.",
+
+    # uber
+    "celestial":    "Stellar divinity—sunfire, starlight constructs, fate decrees and cosmic judgment.",
+    "eldritch":     "Unknowable geometries—sanity drain, void tendrils and non-Euclidean portals.",
+    "divine":       "Sacred authority—sanctification, banishment, miracle shields and binding oaths.",
+    "annihilation": "Absolute erasure—null fields, anti-matter, black holes, silence and unmaking.",
+}
+
 
 # ===== Style prompts per theme key =====
 STYLE_PROMPTS = {
