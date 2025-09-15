@@ -730,23 +730,17 @@ components.html(
         if (!link) return;
         link.addEventListener('click', function(e){
           e.preventDefault(); e.stopPropagation();
-          const doc = window.parent.document;           // stay in the Streamlit app frame
-          const anchor = doc.getElementById('feedback');
-          if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
-          // Find and open the "Send us Feedback" expander
-          const buttons = Array.from(doc.querySelectorAll('button,[role=button]'));
-          const header = buttons.find(b => (b.innerText || '').toLowerCase().includes('send us feedback'));
-          if (header) {
-            const expanded = header.getAttribute('aria-expanded');
-            if (expanded === 'false' || expanded === null) { header.click(); }
-          }
+          // Build a parent URL that opens the feedback expander and jumps to it
+          const url = new URL(window.parent.location.href);
+          url.searchParams.set('open_feedback','1');   // this makes the expander render open
+          url.hash = 'feedback';                       // this scrolls to the anchor
+          window.parent.location.href = url.toString();
         });
       })();
     </script>
     """,
     height=60
 )
-
 
 
 if clicked_generate:
