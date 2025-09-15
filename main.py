@@ -711,15 +711,23 @@ cta_cols = st.columns([1, 2, 1])
 with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
-# --- Inline feedback link under the generator button (jumps to bottom expander) ---
+# --- Inline feedback link under the generator button (jumps + opens feedback expander) ---
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 st.markdown(
     """
     <div style="text-align:center;">
       <a href="#feedback"
          onclick="
-           const el = window.parent.document.getElementById('feedback');
-           if (el) { el.scrollIntoView({behavior:'smooth', block:'start'}); }
+           const doc = window.parent.document;
+           const anchor = doc.getElementById('feedback');
+           if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
+           // Try to auto-open the 'Send us Feedback' expander
+           const headers = [...doc.querySelectorAll('button, [role=button]')];
+           const header = headers.find(b => (b.innerText || '').trim().toLowerCase().includes('send us feedback'));
+           if (header) { 
+             const expanded = header.getAttribute('aria-expanded');
+             if (expanded === 'false' || expanded === null) { header.click(); }
+           }
            return false;
          "
          style="font-size:13px;color:#bbb;text-decoration:underline;">
@@ -729,6 +737,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
 
 if clicked_generate:
