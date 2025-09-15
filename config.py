@@ -15,6 +15,13 @@ _ENABLE_UBER_DEFAULT = False
 # DevDash will call set_uber_enabled_runtime(True/False).
 _UBER_ENABLED_RUNTIME = None  # None means "no override, use env/default"
 
+# ---- Image style defaults (portrait vibe) ----
+IMAGE_US_STYLE = (
+    "cinematic villain portrait, American in style, average age 20s–30s, "
+    "US settings and fashions, reflecting US diversity"
+)
+
+
 def is_uber_enabled() -> bool:
     """
     Returns whether Uber tier is enabled.
