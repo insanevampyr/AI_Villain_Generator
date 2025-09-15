@@ -694,18 +694,6 @@ else:
     # make sure it isn't sticky when UBER is off
     st.session_state.pop("uber_ai_details", None)
 
-
-# ---------------------------
-# Portrait source
-# ---------------------------
-st.markdown("### How would you like to add a villain image?")
-image_option = st.radio("Choose Image Source", ["Upload Your Own", "AI Generate"], horizontal=True, label_visibility="collapsed")
-uploaded_image = None
-if image_option == "Upload Your Own":
-    uploaded_image = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
-    if uploaded_image is not None:
-        st.session_state.villain_image = uploaded_image
-
 # ---------------------------
 # Generate villain details
 # ---------------------------
@@ -720,7 +708,6 @@ with cta_cols[1]:
 if clicked_generate:
     st.session_state.villain = generate_villain(tone=style_key)
     st.session_state.tried_generate = True
-    st.session_state.villain_image = uploaded_image
     st.session_state.ai_image = None
     st.session_state.card_file = None
     st.rerun()
@@ -752,6 +739,41 @@ def _is_http_url(s: str) -> bool:
 # ---------------------------
 if st.session_state.villain:
     villain = st.session_state.villain
+    # --- Portrait section (AI default; upload is optional) ---
+    st.markdown("### Villain Portrait")
+
+    # Primary action: AI portrait (manual; not auto-fired)
+    if st.button("🎨 Generate AI Portrait"):  # keeps your existing credit logic below unchanged
+        ok, msg = check_and_consume_free_or_credit(
+            user_email=norm_email,
+            device_id=st.session_state.device_id,
+            ip=st.session_state.client_ip,
+        )
+        if not ok and not is_dev:
+            # (keep your existing buy/notice block here exactly as you have it)
+            ...
+        else:
+            with st.spinner("Summoning villain through the multiverse..."):
+                style = get_style_prompt(villain.get("theme"))
+                base_prompt = villain.get("origin", "")
+                image_prompt = f"{base_prompt}\n\nStyle: {style}".strip()
+                ai_path = generate_ai_portrait(villain | {"image_prompt": image_prompt})
+                if ai_path and os.path.exists(ai_path):
+                    st.session_state.ai_image = ai_path
+                    st.session_state.villain_image = ai_path
+                    st.success("AI-generated portrait added!")
+                    st.rerun()
+                else:
+                    st.error("Something went wrong during AI generation.")
+                    st.rerun()
+
+# Secondary, optional: upload own image
+st.caption("Or upload your own image instead:")
+uploaded_image = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
+if uploaded_image is not None:
+    st.session_state.villain_image = uploaded_image
+    st.session_state.ai_image = None
+    st.success("Uploaded portrait added!")
 
     if not is_dev and free_used and credits <= 0:
         st.info("You’re out of credits. Redeem or buy more to generate another AI portrait.")
