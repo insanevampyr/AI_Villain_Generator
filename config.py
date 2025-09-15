@@ -55,6 +55,12 @@ def get_theme_description(theme_key: str) -> str:
             return f"Tier: {tier.title()} • {len(powers)} powers"
     return "Theme details unavailable"
 
+# Set of Uber-only theme keys and a helper
+UBER_THEME_KEYS = {"celestial", "eldritch", "divine", "annihilation"}
+
+def is_uber_theme(key: str) -> bool:
+    return (key or "").strip().lower() in UBER_THEME_KEYS
+
 
 # ===== App / Model Settings =====
 APP_NAME = os.getenv("APP_NAME", "AI Villain Generator")
@@ -1423,22 +1429,22 @@ COMPENDIUM = {
 # ===== Style prompts per theme key =====
 STYLE_PROMPTS = {
     # core
-    "elemental": "Painterly comic realism, dynamic lighting, embers/fog/spray matching the element, dramatic Dutch angles.",
-    "energy": "Clean hi-tech cyber look, neon rim-light, arcing energy effects, volumetric glow, sharp contrast.",
-    "biological": "Gritty bio-organic textures, macro detail, chitin/bone/sinew motifs, muted cinematic palette.",
-    "psychic": "Surreal telepathic aura, distortion ripples, lens warping, soft bloom, cool violets and teals.",
-    "chemical": "Industrial grime, hazard signage, toxic vapor plumes, corroded metal, yellow-green accents.",
-    "chaos": "Mischief-carnival vibe, bold colors, motion blur, non-Euclidean angles, glitch flourishes.",
-    "satirical": "Dark comedy pulp poster style, exaggerated props, bold type, pop-art splashes.",
-    "tragic": "Bleak cinematic noir, rain-slick streets, desaturated tones, long shadows, somber framing.",
-    "magical": "Epic fantasy illustration, ornate runes, arcane circles, moody rim light, rich jewel tones.",
-    "deranged": "Unhinged grindhouse poster, harsh grain, smeared motion, harsh reds and blacks.",
+    "elemental": "Cinematic portrait; dynamic rim light; particles matching element (embers/mist/sparks); dramatic angle; moody depth; no text/logos.",
+    "energy": "Clean hi-tech portrait; neon rim-light; arcing energy trails; crisp hard contrast; polished surfaces; no text/logos.",
+    "biological": "Gritty macro textures (chitin/bone/sinew); shallow depth of field; earthy palette; visceral detail; no text/logos.",
+    "psychic": "Surreal aura; lens warps and ripple distortion; soft bloom; cool violets/teals; eyes as focal point; no text/logos.",
+    "chemical": "Industrial grime; hazard tones (acid yellow/green); vapor plumes; corroded metal; filmic lighting; no text/logos.",
+    "chaos": "Mischief carnival energy; bold, clashing color; motion streaks; odd angles; tasteful glitch; face stays clear; no text/logos.",
+    "satirical": "Pop-art color blocking; cheeky props; graphic shapes/halftone texture; playful framing; no words, labels, or typography.",
+    "tragic": "Rain-slick noir; desaturated palette; long shadows; melancholy composition; subtle bloom; no text/logos.",
+    "magical": "Arcane circles, ornate runes, floating motes; rich jewel tones; theatrical rim light; painterly finish; no text/logos.",
+    "deranged": "Grindhouse grit; smeared motion; harsh grain; crimson/ink palette; unhinged expression; no text/logos.",
 
     # uber
-    "celestial": "Mythic cosmic grandeur, starfields, god-rays, gold and white accents, architectural scale.",
-    "eldritch": "Cosmic horror etching, impossible geometry, abyssal palette, fine inked textures.",
-    "divine": "Cathedral-grade holy radiance, marble and gold, sacred sigils, high contrast chiaroscuro.",
-    "annihilation": "Minimalist void, negative-space composition, extreme contrast, hard silhouettes.",
+    "celestial": "Mythic cosmic grandeur; starfields and god-rays; marble-gold accents; architectural scale; sanctified glow; no text/logos.",
+    "eldritch": "Impossible geometry; abyssal palette; fine inked textures; creeping tendrils; unsettling symmetry; no text/logos.",
+    "divine": "Cathedral light; marble, gold, sacred sigils; high-contrast chiaroscuro; judgmental poise; no text/logos.",
+    "annihilation": "Minimalist void; severe negative space; hard silhouettes; extreme contrast; quiet dread; no text/logos.",
 }
 
 def get_style_prompt(theme_key: str) -> str:

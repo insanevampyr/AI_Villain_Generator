@@ -9,7 +9,7 @@ from faq_utils import render_socials, render_share_mvp
 
 from pathlib import Path
 import re
-from config import is_uber_enabled, set_uber_enabled_runtime, compendium_available_themes, normalize_style_key, get_theme_description
+from config import is_uber_enabled, set_uber_enabled_runtime, compendium_available_themes, normalize_style_key, get_theme_description, is_uber_theme
 
 
 def _merge_secrets_into_env():
@@ -43,6 +43,14 @@ from urllib.parse import urlencode
 import time, streamlit as st
 import time
 import streamlit.components.v1 as components
+
+st.markdown("""
+<style>
+.theme-desc{font-size:0.92rem;color:#bbb;margin-top:4px;line-height:1.4;overflow-wrap:anywhere;}
+.uber-tag{font-size:0.84rem;padding:2px 8px;border:1px solid #444;border-radius:999px;margin-left:8px;white-space:nowrap;}
+@media (max-width:640px){ .theme-desc{font-size:0.9rem;} }
+</style>
+""", unsafe_allow_html=True)
 
 
 # Rotate cache-buster hourly so static chunks refresh without hard reloads
@@ -666,7 +674,12 @@ if "style_label" in locals():
     style_key = name_to_key.get(style_label, "")
     desc = get_theme_description(style_key)
     if desc:
-        st.caption(desc)
+        # Show a styled italic one-liner + optional Uber tag
+        uber_badge = ""
+        if (bool(is_uber_enabled() or user_summary.get("uber_enabled")) and is_uber_theme(style_key)):
+            uber_badge = " <span class='uber-tag'>⚡ Uber-tier theme</span>"
+        st.markdown(f"<div class='theme-desc'><em>{desc}</em>{uber_badge}</div>", unsafe_allow_html=True)
+
 style_key = normalize_style_key(name_to_key[style_label])
 
 # --- UBER-only: AI Details (Wildcard powers) toggle ---
@@ -964,7 +977,7 @@ with st.expander("❓ FAQ", expanded=False):
     st.markdown("**What is this?**  \nA tool that makes unique villains with names, powers, crimes, origins, and portraits.")
     st.markdown("**How does it work?**  \nAI creates text + optional portraits. You can download them as villain cards.")
     st.markdown("**Is it random?**  \nYes. Every villain is different, with extra variety to reduce repeats.")
-    st.markdown("**Can I pick the style?**  \nYep — choose a theme (dark, funny, tragic, sci-fi, etc.) before generating.")
+    st.markdown("**Can I pick the style?**  \nYep — choose a theme (Elemental, Psychic, Tragic, etc.) before generating.")
     st.markdown("**Do I need to pay?**  \nText villains are free. AI portraits: 1 free + extra with supporter credits.")
     st.markdown("**Can I use villains in my stories/games?**  \nYes. Use them for fun, writing, or RPGs.")
     st.markdown("**How do I save them?**  \nClick Download to get a clean villain card with portrait + info.")
