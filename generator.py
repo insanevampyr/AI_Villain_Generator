@@ -1308,7 +1308,7 @@ def generate_villain(tone: str = "dark", force_new: bool = False):
         messages=[{"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
                   {"role": "user", "content": prompt}],
         max_tokens=360,
-        temperature=profile.get("temperature", 0.9)
+        temperature=profile.get("temperature", 0.9),
         presence_penalty=0.6,
         frequency_penalty=0.7,
         attempts=2,
@@ -1460,7 +1460,7 @@ def _ai_threat_text(theme: str, threat_level: str, power_line: str) -> str:
         messages=[{"role": "system", "content": "You are a creative villain generator that returns VALID JSON only."},
                   {"role": "user", "content": prompt}],
         max_tokens=360,
-        temperature=profile.get("temperature", 0.9)
+        temperature=profile.get("temperature", 0.9),
         presence_penalty=0.6,
         frequency_penalty=0.7,
         attempts=2,
