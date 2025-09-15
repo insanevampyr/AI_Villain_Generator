@@ -20,3 +20,8 @@ commands.txt
 __pycache__/
 *.pyc
 
+# Ignore stray/generated art not part of core app
+assets/AIVillains_base.png
+assets/AI_Villain_bannerCOPY.png
+assets/story_images/
+hero_cards/
