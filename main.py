@@ -712,16 +712,69 @@ with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
 # --- Inline feedback link under the generator button (opens feedback expander) ---
-st.markdown(
+import streamlit.components.v1 as components  # safe if duplicate import
+
+components.html(
     """
     <div style="text-align:center;">
-      <a href="?open_feedback=1#feedback"
-         style="font-size:13px;color:#bbb;text-decoration:underline;">
+      <a id="feedback-link"
+         href="#"
+         style="font-size:13px;color:#bbb;text-decoration:underline;cursor:pointer;">
         💬 Suggest a feature
       </a>
     </div>
+    <script>
+      (function(){
+        const link = document.getElementById('feedback-link');
+        if (!link) return;
+
+        function openFeedbackExpander(root){
+          // 1) Scroll to anchor
+          const anchor = root.getElementById('feedback');
+          if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
+
+          // 2) Find the Expander by test id + label text
+          const expanders = Array.from(root.querySelectorAll('[data-testid="stExpander"]'));
+          const target = expanders.find(x => (x.textContent || "").toLowerCase().includes('send us feedback'));
+          if (!target) return false;
+
+          // 3) Find a clickable header inside the expander (handle multiple Streamlit versions)
+          const header =
+            target.querySelector('[data-testid="stExpanderHeader"] button') ||
+            target.querySelector('[data-testid="stExpanderHeader"]') ||
+            target.querySelector('button[aria-expanded]') ||
+            target.querySelector('button');
+
+          if (!header) return false;
+
+          // 4) If it's closed, click to open
+          const expanded = header.getAttribute('aria-expanded');
+          if (expanded === 'false' || expanded === null || expanded === '') {
+            header.click();
+          }
+          return true;
+        }
+
+        link.addEventListener('click', function(e){
+          e.preventDefault(); e.stopPropagation();
+
+          // Prefer parent doc (Streamlit app), but fall back to same document
+          const root = (window.parent && window.parent.document) ? window.parent.document : document;
+
+          // Try immediately
+          if (openFeedbackExpander(root)) return;
+
+          // If layout is still painting, retry shortly a few times
+          let tries = 0;
+          const timer = setInterval(() => {
+            tries++;
+            if (openFeedbackExpander(root) || tries > 8) clearInterval(timer);
+          }, 60);
+        });
+      })();
+    </script>
     """,
-    unsafe_allow_html=True,
+    height=60
 )
 
 
