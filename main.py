@@ -52,6 +52,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Flashing highlight for the Feedback expander
+st.markdown("""
+<style>
+@keyframes feedbackPulse {
+  0%   { outline-color:#a855f7; box-shadow:0 0 12px 2px rgba(168,85,247,.9); }
+  40%  { outline-color:#fff;    box-shadow:0 0 22px 8px rgba(168,85,247,.65); }
+  80%  { outline-color:#a855f7; box-shadow:0 0 12px 2px rgba(168,85,247,.35); }
+  100% { outline-color:transparent; box-shadow:none; }
+}
+.flash-feedback {
+  outline:3px solid #a855f7 !important;
+  border-radius:12px !important;
+  animation: feedbackPulse 2.5s ease-out 1;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # Rotate cache-buster hourly so static chunks refresh without hard reloads
 try:
@@ -728,47 +745,32 @@ components.html(
         const link = document.getElementById('feedback-link');
         if (!link) return;
 
-        function openFeedbackExpander(root){
-          // 1) Scroll to anchor
+        // Scroll to #feedback and briefly flash the "Send us Feedback" expander
+        function flashFeedback(root){
+          // 1) Smooth-scroll to the anchor
           const anchor = root.getElementById('feedback');
           if (anchor) { anchor.scrollIntoView({behavior:'smooth', block:'start'}); }
 
-          // 2) Find the Expander by test id + label text
+          // 2) Target the actual expander container and add the flashing class
           const expanders = Array.from(root.querySelectorAll('[data-testid="stExpander"]'));
-          const target = expanders.find(x => (x.textContent || "").toLowerCase().includes('send us feedback'));
+          const target = expanders.find(x => (x.textContent || '').toLowerCase().includes('send us feedback'));
           if (!target) return false;
 
-          // 3) Find a clickable header inside the expander (handle multiple Streamlit versions)
-          const header =
-            target.querySelector('[data-testid="stExpanderHeader"] button') ||
-            target.querySelector('[data-testid="stExpanderHeader"]') ||
-            target.querySelector('button[aria-expanded]') ||
-            target.querySelector('button');
-
-          if (!header) return false;
-
-          // 4) If it's closed, click to open
-          const expanded = header.getAttribute('aria-expanded');
-          if (expanded === 'false' || expanded === null || expanded === '') {
-            header.click();
-          }
+          target.classList.add('flash-feedback');
+          setTimeout(() => target.classList.remove('flash-feedback'), 2600);
           return true;
         }
 
         link.addEventListener('click', function(e){
           e.preventDefault(); e.stopPropagation();
-
-          // Prefer parent doc (Streamlit app), but fall back to same document
           const root = (window.parent && window.parent.document) ? window.parent.document : document;
 
-          // Try immediately
-          if (openFeedbackExpander(root)) return;
-
-          // If layout is still painting, retry shortly a few times
+          // Try right away; if Streamlit is still laying out, retry quickly a few times
+          if (flashFeedback(root)) return;
           let tries = 0;
           const timer = setInterval(() => {
             tries++;
-            if (openFeedbackExpander(root) || tries > 8) clearInterval(timer);
+            if (flashFeedback(root) || tries > 8) clearInterval(timer);
           }, 60);
         });
       })();
@@ -776,6 +778,7 @@ components.html(
     """,
     height=60
 )
+
 
 
 
