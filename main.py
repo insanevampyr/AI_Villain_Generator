@@ -11,6 +11,30 @@ from pathlib import Path
 import re
 from config import is_uber_enabled, set_uber_enabled_runtime, compendium_available_themes, normalize_style_key, get_theme_description, is_uber_theme
 
+# --- UI: header refresh pill style ---
+st.markdown("""
+<style>
+#credits-refresh .stButton { display:flex; justify-content:flex-end; }
+#credits-refresh button {
+  border-radius: 9999px !important;
+  padding: 6px 12px !important;
+  line-height: 1.1 !important;
+  font-size: 13px !important;
+  background: transparent !important;
+  border: 1px solid rgba(255,255,255,.18) !important;
+  color: rgba(255,255,255,.85) !important;
+}
+#credits-refresh button:hover {
+  background: rgba(255,255,255,.06) !important;
+  border-color: rgba(255,255,255,.28) !important;
+}
+#credits-refresh button:focus {
+  outline: 2px solid #a855f7 !important;
+  box-shadow: 0 0 0 3px rgba(168,85,247,.35) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 def _merge_secrets_into_env():
     try:
@@ -651,15 +675,21 @@ thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
-col_info, col_refresh = st.columns([4, 1])
+
+col_info, col_refresh = st.columns([6, 1.4], vertical_alignment="center")
+
 with col_info:
     st.markdown(sub_line, unsafe_allow_html=True)
+
 with col_refresh:
-    if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
+    st.markdown('<div id="credits-refresh">', unsafe_allow_html=True)
+    if st.button("🔄 Refresh\nCredits", key="btn_refresh_credits", help="Fetch latest credit balance"):
         delta = refresh_credits()
         if delta > 0:
             st.session_state.saw_thanks = False
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 if free_used and credits <= 0 and not is_dev:
