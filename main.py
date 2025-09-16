@@ -712,35 +712,18 @@ with cta_cols[1]:
     clicked_generate = st.button("🚀 Generate Your Villain", type="primary", use_container_width=True)
 
 # --- Inline feedback link under the generator button (opens feedback expander) ---
-import streamlit.components.v1 as components  # already imported at top, ok to keep
-
-# keep the small spacer you already have above
-components.html(
+st.markdown(
     """
     <div style="text-align:center;">
-      <a id="feedback-link"
-         href="#"
-         style="font-size:13px;color:#bbb;text-decoration:underline;cursor:pointer;">
+      <a href="?open_feedback=1#feedback"
+         style="font-size:13px;color:#bbb;text-decoration:underline;">
         💬 Suggest a feature
       </a>
     </div>
-    <script>
-      (function(){
-        const link = document.getElementById('feedback-link');
-        if (!link) return;
-        link.addEventListener('click', function(e){
-          e.preventDefault(); e.stopPropagation();
-          // Build a parent URL that opens the feedback expander and jumps to it
-          const url = new URL(window.parent.location.href);
-          url.searchParams.set('open_feedback','1');   // this makes the expander render open
-          url.hash = 'feedback';                       // this scrolls to the anchor
-          window.parent.location.href = url.toString();
-        });
-      })();
-    </script>
     """,
-    height=60
+    unsafe_allow_html=True,
 )
+
 
 
 if clicked_generate:
