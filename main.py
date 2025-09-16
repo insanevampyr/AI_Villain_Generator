@@ -651,13 +651,16 @@ thanks_for_support_if_any()
 
 balance_str = f"• Credits: {credits}" if credits > 0 else f"• **Credits: {credits}**"
 sub_line = f"Signed in as **{norm_email}** &nbsp;&nbsp; {balance_str} &nbsp;&nbsp; {'• Free used' if free_used else '• Free available'}"
-st.markdown(sub_line, unsafe_allow_html=True)
+col_info, col_refresh = st.columns([4, 1])
+with col_info:
+    st.markdown(sub_line, unsafe_allow_html=True)
+with col_refresh:
+    if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
+        delta = refresh_credits()
+        if delta > 0:
+            st.session_state.saw_thanks = False
+        st.rerun()
 
-if st.button("🔄 Refresh Credits", key="btn_refresh_credits"):
-    delta = refresh_credits()
-    if delta > 0:
-        st.session_state.saw_thanks = False
-    st.rerun()
 
 if free_used and credits <= 0 and not is_dev:
     st.markdown(
