@@ -1,15 +1,23 @@
 # main.py
 # --- Load .env and merge Streamlit secrets into os.environ BEFORE other imports ---
-import os, time
+import os, time, json, base64, random, re
+from pathlib import Path
+from typing import Optional
+
 from dotenv import load_dotenv
 import streamlit as st
-load_dotenv(override=True)
-from config import get_style_prompt
+import smtplib, ssl
+from email.mime.text import MIMEText
+
+from config import (
+    get_style_prompt,
+    is_uber_enabled, set_uber_enabled_runtime,
+    compendium_available_themes, normalize_style_key,
+    get_theme_description, is_uber_theme,
+)
 from faq_utils import render_socials, render_share_mvp
 
-from pathlib import Path
-import re
-from config import is_uber_enabled, set_uber_enabled_runtime, compendium_available_themes, normalize_style_key, get_theme_description, is_uber_theme
+load_dotenv(override=True)
 
 # --- UI: header refresh pill style ---
 st.markdown("""
@@ -49,24 +57,12 @@ _merge_secrets_into_env()
 print("DEBUG: OPENAI_API_KEY in env?", "OPENAI_API_KEY" in os.environ)
 print("DEBUG: OPENAI_API_KEY length:", len(os.getenv("OPENAI_API_KEY") or ""))
 try:
-    import streamlit as st
     if hasattr(st, "secrets"):
         print("DEBUG: st.secrets has OPENAI_API_KEY?", "OPENAI_API_KEY" in st.secrets)
 except Exception as e:
     print("DEBUG: st.secrets check failed:", e)
 
 # --------------------------------------------------------------------------
-
-import os
-import random
-import smtplib
-import ssl
-import base64
-from email.mime.text import MIMEText
-from urllib.parse import urlencode
-import time, streamlit as st
-import time
-import streamlit.components.v1 as components
 
 st.markdown("""
 <style>
@@ -93,17 +89,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # Rotate cache-buster hourly so static chunks refresh without hard reloads
 try:
     st.query_params["cb"] = str(int(time.time() // 3600))
 except Exception:
     pass
-
-# --- imports (top of file) ---
-import streamlit as st
-import os, time, json, base64, random, re
-from typing import Optional
 
 from airtable_utils import (
     normalize_email,
@@ -139,14 +129,6 @@ from airtable_utils import (
     get_villain,
 )
 
-# ---------------------------
-# Bootstrap
-# ---------------------------
-load_dotenv()
-DEV_DASH_KEY = _get_secret("DEV_DASH_KEY", "")
-# --- Bootstrap ---
-load_dotenv()
-
 # Resolve without ever clobbering a good env value
 try:
     OPENAI_API_KEY = (os.environ.get("OPENAI_API_KEY") or str(st.secrets["OPENAI_API_KEY"])).strip()
@@ -159,9 +141,6 @@ if OPENAI_API_KEY:  # only write if non-empty
 # Tell generator its final key BEFORE importing its symbols
 import generator
 generator.init_openai_key(OPENAI_API_KEY)
-
-DEV_DASH_KEY = _get_secret("DEV_DASH_KEY", "")
-
 
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
@@ -195,7 +174,8 @@ for k, v in dict(
     ai_image=None,
     card_file=None,
     trigger_card_dl=False,   # one-click card download trigger
-    dev_key_entered=False,
+    is_devdash=False,
+
     # refresh-toast plumbing
     prev_credits=0,
     thanks_shown=False,
@@ -247,16 +227,20 @@ def _send_otp_email(to_email: str, code: str) -> bool:
         return False
 
 def _current_user_fields():
+    """
+    Return a small dict of fields from the Airtable user record for the logged-in email.
+    """
     if not st.session_state.otp_email:
-        return {"ai_credits": 0, "free_used": False, "uber_enabled": False}
+        return {"ai_credits": 0, "free_used": False, "uber_enabled": False, "devdash_enabled": False}
     rec = get_user_by_email(st.session_state.otp_email)
     if not rec:
-        return {"ai_credits": 0, "free_used": False, "uber_enabled": False}
+        return {"ai_credits": 0, "free_used": False, "uber_enabled": False, "devdash_enabled": False}
     f = rec.get("fields", {}) or {}
     return {
         "ai_credits": int(f.get("ai_credits", 0) or 0),
         "free_used": bool(f.get("free_used", False)),
         "uber_enabled": bool(f.get("uber_enabled", False)),
+        "devdash_enabled": bool(f.get("devdash_enabled", False)),
     }
 
 def _set_login_background():
@@ -314,168 +298,6 @@ def focus_input(label_text: str):
         """,
         height=0,
     )
-
-# -------------------------------
-# Invisible corner click -> reveal dev drawer (before login)
-# -------------------------------
-# IMPORTANT: Use ONLY the new st.query_params API in the whole app.
-# Never call experimental_get/set_query_params anywhere in this process.
-
-qp = st.query_params  # one handle; don't mix with experimental APIs
-
-def _truthy(v):
-    s = str(v).strip().lower()
-    return s not in ("", "0", "false", "none")
-
-# Read-only booleans from query params
-dev_open = _truthy(qp.get("dev", ""))
-dev_hint = "dev_hint" in qp  # first-tap confirmation flag (presence == True)
-
-# Tiny helper to update query params without switching APIs
-def _qp_update(**kw):
-    # Convert values to strings so Streamlit keeps them stable
-    st.query_params.update({k: ("" if v is None else str(v)) for k, v in kw.items()})
-
-# Optional: small text hint if the user tapped once already
-if dev_hint and not dev_open:
-    st.caption("Tap again to open developer panel…")
-
-
-st.markdown(
-    """
-    <style>
-      a.dev-hitbox{
-        position:fixed;
-        bottom:88px; right:12px;
-        width:120px; height:48px;
-        display:block; opacity:0.02; z-index:9999; text-decoration:none;
-        border-radius:12px;
-      }
-      a.dev-hitbox:hover{opacity:0.12;}
-      .dev-confirm{
-        position:fixed; bottom:96px; right:16px; z-index:10000;
-        background:#111; border:1px solid #333; border-radius:999px;
-        padding:8px 10px; box-shadow:0 4px 14px rgba(0,0,0,0.4);
-        font-size:12px; color:#ddd; display:flex; gap:8px; align-items:center;
-      }
-      .dev-confirm a{
-        color:#eee; text-decoration:none; background:#222;
-        padding:4px 8px; border-radius:8px; border:1px solid #444;
-      }
-      .dev-confirm a:hover{ background:#2a2a2a; }
-      @media (max-width: 640px){
-        a.dev-hitbox{ width:140px;height:56px; bottom:96px; right:12px; }
-        .dev-confirm{ bottom:104px; right:14px; }
-      }
-      div.dev-drawer{
-        position:fixed; bottom:14px; right:14px; z-index:10000;
-        background:#111; border:1px solid #333; border-radius:10px;
-        padding:10px 12px; box-shadow:0 4px 14px rgba(0,0,0,0.4); min-width:260px;
-      }
-      .dev-label{ font-size:12px; color:#aaa; margin-bottom:6px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-if not dev_open and not dev_hint:
-    hint_params = dict(st.query_params); hint_params["dev_hint"] = "1"
-    st.markdown(f'<a class="dev-hitbox" href="?{urlencode(hint_params)}"></a>', unsafe_allow_html=True)
-
-elif dev_hint and not dev_open:
-    open_params = dict(st.query_params); open_params["dev"] = "1"; open_params.pop("dev_hint", None)
-    cancel_params = dict(st.query_params); cancel_params.pop("dev_hint", None); cancel_params.pop("dev", None)
-    st.markdown(
-        f"""
-        <div class="dev-confirm">
-          <span>Open dev tools?</span>
-          <a href="?{urlencode(open_params)}">Open</a>
-          <a href="?{urlencode(cancel_params)}">Cancel</a>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-if dev_open:
-    close_params = dict(st.query_params); close_params.pop("dev", None); close_params.pop("dev_hint", None)
-    st.markdown(f'<div class="dev-drawer"><div class="dev-label">Developer</div>', unsafe_allow_html=True)
-
-    # Dev key (tiny)
-    dev_val = st.text_input("Dev key", value="", type="password", key="dev_key_input",
-                            label_visibility="collapsed", placeholder="dev key")
-    col_apply, col_close = st.columns([1,1])
-    with col_apply:
-        if st.button("Apply", key="apply_dev_key", use_container_width=True):
-            st.session_state.dev_key_entered = (dev_val == DEV_DASH_KEY)
-            st.rerun()
-    with col_close:
-        st.link_button("Close", f"?{urlencode(close_params)}", use_container_width=True)
-
-        # --- UBER tier toggle (dev only) ---
-        st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
-        st.caption("Uber tier")
-
-        cur = is_uber_enabled()
-        new = st.checkbox("Enable UBER tier", value=cur, key="uber_toggle", help="Dev-only: gates UBER content")
-
-        cols = st.columns([1,1])
-        with cols[0]:
-            if st.button("Save UBER", use_container_width=True, key="btn_save_uber"):
-                set_uber_enabled_runtime(new)
-                _save_env_bool("VILLAINS_ENABLE_UBER", new)
-                st.success(f"Saved: UBER {'ON' if new else 'OFF'}")
-                # -- Load old Airtable save (record id) for testing the shim --
-                st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-                st.caption("Load old Airtable save")
-                rec_id = st.text_input("Airtable Record ID", key="legacy_load_recid", label_visibility="collapsed",
-                                    placeholder="recXXXXXXXXXXXXXX")
-                if st.button("Load record", use_container_width=True, key="btn_load_legacy"):
-                    try:
-                        rec = get_villain(rec_id)  # from airtable_utils
-                        fields = (rec or {}).get("fields", {})
-                        v = _shim_from_airtable_fields(fields)
-                        if not v:
-                            st.error("Couldn’t parse that record (no villain_json?).")
-                        else:
-                            st.success("Loaded + normalized.")
-                            # show a quick pretty print
-                            st.json({
-                                "name": v.get("name"),
-                                "theme": v.get("theme"),
-                                "power_name": (v.get("power") or {}).get("name"),
-                                "legacy": v.get("_legacy", False),
-                                "threat_label": v.get("threat_label"),
-                                "threat_text": v.get("threat_text"),
-                                "crimes": v.get("crimes"),
-                            })
-                    except Exception as e:
-                        st.error(f"Error loading record: {e}")
-
-
-
-    # --- Admin Top-Up (only if dev mode is active) ---
-    if st.session_state.dev_key_entered:
-        st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
-        st.caption("Admin credit top-up")
-
-        tgt_email = st.text_input("User email", key="admin_topup_email", label_visibility="collapsed",
-                                  placeholder="user@example.com")
-        col_delta, col_btn = st.columns([1,1])
-        with col_delta:
-            delta = st.number_input("Δ credits", min_value=-1000, max_value=1000, value=1, step=1,
-                                    label_visibility="collapsed")
-        with col_btn:
-            if st.button("Apply change", use_container_width=True, key="btn_admin_apply_delta"):
-                if not tgt_email or "@" not in tgt_email:
-                    st.error("Enter a valid email.")
-                else:
-                    ok, msg, new_bal = adjust_credits(tgt_email.strip(), int(delta))
-                    if ok:
-                        st.success(f"{msg} New balance: {new_bal}")
-                    else:
-                        st.error(msg)
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # ---- Legacy loader shim (old Airtable saves → new compendium shape) ----
 import json
@@ -590,6 +412,7 @@ def ui_otp_panel():
                     # Apply per-user Uber gate to runtime
                     from config import set_uber_enabled_runtime
                     set_uber_enabled_runtime(bool(fields.get("uber_enabled", False)))
+                    st.session_state.is_devdash = bool(fields.get("devdash_enabled", False))
                     st.success("✅ Verified!")
                     st.rerun()
                 else:
@@ -607,7 +430,7 @@ if not st.session_state.otp_verified:
 _clear_background_after_login()
 
 # Choose dev mode flag
-is_dev = bool(st.session_state.dev_key_entered)
+is_dev = bool(st.session_state.get("is_devdash", False))
 st.session_state["is_dev"] = is_dev
 
 # ---------------------------
@@ -640,6 +463,53 @@ def thanks_for_support_if_any():
         )
         st.session_state.saw_thanks = True
 
+# ---------------------------
+# DevDash (Airtable-gated)
+# ---------------------------
+if st.session_state.get("is_devdash", False):
+    with st.expander("🛠️ DevDash", expanded=False):
+        # ---- Permission refresh (if you flip Airtable while user is online)
+        cols_perm = st.columns([1, 1, 3])
+        with cols_perm[0]:
+            if st.button("🔁 Refresh permissions", key="btn_refresh_perms"):
+                fields = _current_user_fields()
+                st.session_state.is_devdash = bool(fields.get("devdash_enabled", False))
+                from config import set_uber_enabled_runtime
+                set_uber_enabled_runtime(bool(fields.get("uber_enabled", False)))
+                st.success("Permissions refreshed from Airtable.")
+                st.rerun()
+
+        # ---- UBER tier toggle
+        st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
+        st.caption("Uber tier")
+        cur = is_uber_enabled()
+        new = st.checkbox("Enable UBER tier", value=cur, key="uber_toggle", help="Dev-only: gates UBER content")
+        if st.button("Save UBER", use_container_width=False, key="btn_save_uber2"):
+            set_uber_enabled_runtime(new)
+            _save_env_bool("VILLAINS_ENABLE_UBER", new)
+            st.success(f"Saved: UBER {'ON' if new else 'OFF'}")
+
+        # ---- Admin credit top-up
+        st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
+        st.caption("Admin credit top-up")
+        tgt_email = st.text_input("User email", key="admin_topup_email2", label_visibility="collapsed",
+                                  placeholder="user@example.com")
+        c1, c2 = st.columns([1,1])
+        with c1:
+            delta = st.number_input("Δ credits", min_value=-1000, max_value=1000, value=1, step=1,
+                                    label_visibility="collapsed", key="admin_delta2")
+        with c2:
+            if st.button("Apply change", use_container_width=True, key="btn_admin_apply_delta2"):
+                if not tgt_email or "@" not in tgt_email:
+                    st.error("Enter a valid email.")
+                else:
+                    ok, msg, new_bal = adjust_credits(tgt_email.strip(), int(delta))
+                    if ok:
+                        st.success(f"{msg} New balance: {new_bal}")
+                    else:
+                        st.error(msg)
+
+
 norm_email = normalize_email(st.session_state.otp_email or "")
 user_summary = _current_user_fields()
 credits = user_summary["ai_credits"]
@@ -667,7 +537,7 @@ if credits <= 0:
     )
 
 title_text = "🌙 AI Villain Generator"
-if is_dev:
+if st.session_state.get("is_devdash", False):
     title_text += " ⚡"
 st.title(title_text)
 
@@ -692,7 +562,7 @@ with col_refresh:
 
 
 
-if free_used and credits <= 0 and not is_dev:
+if free_used and credits <= 0 and not st.session_state.get("is_devdash", False):
     st.markdown(
         """
         <div style="padding: 0.8em; background-color: #2b2b2b; border-radius: 8px; margin: 8px 0 12px;">
@@ -861,7 +731,7 @@ if st.session_state.villain:
             device_id=st.session_state.device_id,
             ip=st.session_state.client_ip,
         )
-        if not ok and not is_dev:
+        if not ok and not st.session_state.get("is_devdash", False):
             st.markdown(
                 """
                 <div style="padding: 0.6em; background-color: #2b2b2b; border-radius: 6px;">
@@ -1099,6 +969,12 @@ with st.expander("❓ FAQ", expanded=False):
     st.markdown("**Can I suggest features?**  \nYes. We welcome feedback and ideas.")
 
 st.markdown('<span id="feedback"></span>', unsafe_allow_html=True)
+# Minimal helpers for query params + truthy casting (used by feedback expander)
+qp = st.query_params
+def _truthy(v):
+    s = str(v).strip().lower()
+    return s not in ("", "0", "false", "none")
+
 with st.expander("💬 Send us Feedback", expanded=_truthy(qp.get("open_feedback", ""))):
     embed_url = "https://tally.so/r/3yae6p?transparentBackground=1&hideTitle=1"
 
@@ -1126,8 +1002,6 @@ def _img_to_base64(path):
 from faq_utils import render_socials
 render_socials(st)
 
-
-
-# Dev debug panel (only for dev key holders)
-if st.session_state.get("dev_key_entered"):
+# Dev debug panel (Airtable-gated)
+if st.session_state.get("is_devdash", False):
     render_debug_panel()
