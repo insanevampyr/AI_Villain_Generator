@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import streamlit as st
 import smtplib, ssl
 from email.mime.text import MIMEText
+import streamlit.components.v1 as components
+
 
 from config import (
     get_style_prompt,
