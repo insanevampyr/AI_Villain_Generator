@@ -438,24 +438,45 @@ st.session_state["is_dev"] = is_dev
 # ---------------------------
 # Header (signed-in) with credits badge
 # ---------------------------
-def refresh_credits() -> int:
+def refresh_user_state() -> int:
+    """
+    Refresh the signed-in user's Airtable-backed state:
+    - Credits (ai_credits) and delta
+    - Free used flag
+    - Uber flag (and apply to runtime)
+    - DevDash flag (is_devdash)
+    Returns the positive credits delta (if any) for the 'thanks' toast logic.
+    """
     email = (st.session_state.get("otp_email")
              or st.session_state.get("normalized_email")
              or "").strip().lower()
     if not email:
         st.session_state.latest_credit_delta = 0
         return 0
+
     rec = get_user_by_email(email)
     if not rec:
         st.session_state.latest_credit_delta = 0
         return 0
+
     fields = (rec.get("fields") or {})
+    # --- Credits & delta
     old = int(st.session_state.get("_last_known_credits") or 0)
     new = int(fields.get("ai_credits", 0) or 0)
     delta = max(0, new - old)
     st.session_state.ai_credits = new
     st.session_state._last_known_credits = new
     st.session_state.latest_credit_delta = delta
+
+    # --- Free used
+    st.session_state.free_used = bool(fields.get("free_used", False))
+
+    # --- Uber
+    set_uber_enabled_runtime(bool(fields.get("uber_enabled", False)))
+
+    # --- DevDash
+    st.session_state.is_devdash = bool(fields.get("devdash_enabled", False))
+
     return delta
 
 def thanks_for_support_if_any():
@@ -470,17 +491,7 @@ def thanks_for_support_if_any():
 # ---------------------------
 if st.session_state.get("is_devdash", False):
     with st.expander("🛠️ DevDash", expanded=False):
-        # ---- Permission refresh (if you flip Airtable while user is online)
-        cols_perm = st.columns([1, 1, 3])
-        with cols_perm[0]:
-            if st.button("🔁 Refresh permissions", key="btn_refresh_perms"):
-                fields = _current_user_fields()
-                st.session_state.is_devdash = bool(fields.get("devdash_enabled", False))
-                from config import set_uber_enabled_runtime
-                set_uber_enabled_runtime(bool(fields.get("uber_enabled", False)))
-                st.success("Permissions refreshed from Airtable.")
-                st.rerun()
-
+        
         # ---- UBER tier toggle
         st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
         st.caption("Uber tier")
@@ -555,12 +566,13 @@ with col_info:
 
 with col_refresh:
     st.markdown('<div id="credits-refresh">', unsafe_allow_html=True)
-    if st.button("🔄 Refresh\nCredits", key="btn_refresh_credits", help="Fetch latest credit balance"):
-        delta = refresh_credits()
+    if st.button("🔄 Refresh", key="btn_refresh_user", help="Reload credits and permissions from Airtable"):
+        delta = refresh_user_state()
         if delta > 0:
             st.session_state.saw_thanks = False
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 
 
