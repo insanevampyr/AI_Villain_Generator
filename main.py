@@ -491,7 +491,10 @@ def thanks_for_support_if_any():
 # ---------------------------
 if st.session_state.get("is_devdash", False):
     with st.expander("🛠️ DevDash", expanded=False):
-        
+        # Developer Debug — Session Cost (shows directly under DevDash)
+        if st.session_state.get("is_devdash", False):
+            render_debug_panel()
+
         # ---- UBER tier toggle
         st.markdown("<hr style='border:1px solid #222;margin:8px 0'>", unsafe_allow_html=True)
         st.caption("Uber tier")
@@ -521,6 +524,7 @@ if st.session_state.get("is_devdash", False):
                         st.success(f"{msg} New balance: {new_bal}")
                     else:
                         st.error(msg)
+
 
 
 norm_email = normalize_email(st.session_state.otp_email or "")
@@ -1015,7 +1019,3 @@ def _img_to_base64(path):
 # --- Footer socials ---
 from faq_utils import render_socials
 render_socials(st)
-
-# Dev debug panel (Airtable-gated)
-if st.session_state.get("is_devdash", False):
-    render_debug_panel()
