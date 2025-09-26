@@ -777,6 +777,7 @@ if st.session_state.villain:
                     st.session_state.ai_image = ai_path
                     st.session_state.villain_image = ai_path
                     st.success("AI-generated portrait added!")
+                    st.session_state.card_file = None
                     st.rerun()
                 else:
                     st.error("Something went wrong during AI generation.")
@@ -844,23 +845,35 @@ if st.session_state.villain:
                 with open("assets/AI_Villain_logo.png", "rb") as f:
                     portrait_bytes = f.read()
 
-        # 2) Card bytes — create if missing (uses current theme)
+        # 2) Card bytes — ALWAYS rebuild using the latest portrait so the circle matches
         card_bytes = None
         try:
-            if st.session_state.get("card_file") and os.path.exists(st.session_state.card_file):
+            # Resolve a concrete portrait file path for the card builder
+            portrait_path_for_card = None
+            if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
+                portrait_path_for_card = st.session_state.ai_image
+            elif isinstance(st.session_state.villain_image, str) and os.path.exists(st.session_state.villain_image):
+                portrait_path_for_card = st.session_state.villain_image
+            elif hasattr(st.session_state.villain_image, "read"):
+                # Save uploaded file-like to a temp PNG so create_villain_card receives a path
+                from PIL import Image
+                import io, time as _t
+                st.session_state.villain_image.seek(0)
+                im = Image.open(st.session_state.villain_image).convert("RGBA")
+                tmp_path = f".tmp_portrait_{int(_t.time())}.png"
+                im.save(tmp_path, "PNG")
+                portrait_path_for_card = tmp_path
+
+            # Build a fresh card every time to avoid stale circle-portrait
+            card_path = create_villain_card(
+                st.session_state.villain,
+                image_file=(portrait_path_for_card or "assets/AI_Villain_logo.png"),
+                theme_name=style_key,
+            )
+            st.session_state.card_file = card_path if card_path and os.path.exists(card_path) else None
+            if st.session_state.card_file:
                 with open(st.session_state.card_file, "rb") as f:
                     card_bytes = f.read()
-            else:
-                card_path = create_villain_card(
-                    st.session_state.villain,
-                    image_file=(st.session_state.ai_image if st.session_state.ai_image and os.path.exists(st.session_state.ai_image)
-                                else st.session_state.villain_image),
-                    theme_name=style_key,
-                )
-                if card_path and os.path.exists(card_path):
-                    st.session_state.card_file = card_path
-                    with open(card_path, "rb") as f:
-                        card_bytes = f.read()
         except Exception as e:
             st.warning(f"Card build failed (continuing without card): {e}")
 
