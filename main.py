@@ -11,7 +11,7 @@ from email.mime.text import MIMEText
 import streamlit.components.v1 as components
 import io, zipfile
 from villain_utils import create_villain_card, build_villain_zip_bytes
-st.caption("build: unified-zip v1")
+st.caption("build: AI Villain Generator V1")
 
 
 
@@ -793,37 +793,41 @@ if st.session_state.villain:
     # Priority: fresh AI image → uploaded → default
     is_default_image = False
     if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
-        display_source = _image_bytes(st.session_state.ai_image)
+        with open(st.session_state.ai_image, "rb") as f:
+            display_source = f.read()
     elif st.session_state.villain_image is not None:
-        display_source = st.session_state.villain_image
+        display_source = st.session_state.villain_image  # may be a BytesIO-like uploader
     else:
-        display_source = _image_bytes("assets/AI_Villain_logo.png")
+        with open("assets/AI_Villain_logo.png", "rb") as f:
+            display_source = f.read()
         is_default_image = True
 
     # text left, image right (portrait top-right like before)
     col_meta, col_img = st.columns([2, 3])
 
+    # ------------------ RIGHT COLUMN: portrait + right-aligned buttons ------------------
     with col_img:
-    # ---- Portrait preview ----
+        # ---- Portrait preview ----
         if display_source:
             caption_text = "Default Portrait — replace with AI or upload" if is_default_image else "Current Portrait"
             st.image(display_source, caption=caption_text, use_container_width=True)
         else:
             st.write("_No image available._")
 
-     # ---- Villain Pack (ZIP): portrait + card + JSON (includes gender) ----
-        import io, os
+        # ---- Build card bytes (ensure we have a .png for the ZIP) ----
+        import io
         from PIL import Image
 
         def _bytes_from_any_image(src) -> bytes | None:
-            # Return PNG bytes from a path or an uploaded file-like object
             if src is None:
                 return None
-            if hasattr(src, "read"):
+            if hasattr(src, "read"):  # uploaded file-like
                 src.seek(0)
                 im = Image.open(src).convert("RGBA")
                 b = io.BytesIO(); im.save(b, format="PNG")
                 return b.getvalue()
+            if isinstance(src, (bytes, bytearray)):
+                return bytes(src)
             if isinstance(src, str) and os.path.exists(src):
                 with open(src, "rb") as f:
                     return f.read()
@@ -860,70 +864,76 @@ if st.session_state.villain:
         except Exception as e:
             st.warning(f"Card build failed (continuing without card): {e}")
 
-    # 3) Build and offer the ZIP
-    try:
-        zip_bytes, zip_name = build_villain_zip_bytes(
-            st.session_state.villain,
-            portrait_bytes=portrait_bytes,
-            card_bytes=card_bytes,
-        )
-        st.download_button(
-            label="⬇️ Download Villain Pack (ZIP)",
-            data=zip_bytes,
-            file_name=zip_name,
-            mime="application/zip",
-            key="btn_download_zip_pack",
-            use_container_width=True,
-            help="Portrait + Card + JSON (includes gender) in one file",
-        )
-    except Exception as e:
-        st.warning(f"Couldn’t prepare ZIP: {e}")
+        # 3) Build ZIP + show RIGHT-ALIGNED buttons under the image
+        try:
+            zip_bytes, zip_name = build_villain_zip_bytes(
+                st.session_state.villain,
+                portrait_bytes=portrait_bytes,
+                card_bytes=card_bytes,
+            )
 
-    # 4) Save + Share Link (Airtable)
-    c1, _ = st.columns([1, 1])
-    with c1:
-        if st.button("💾 Save + Get Share Link", use_container_width=True):
-            try:
-                from airtable_utils import create_villain_record, ensure_share_token, get_villain
-                def _is_http_url(s: str) -> bool:
-                    s = str(s or "")
-                    return s.startswith("http://") or s.startswith("https://")
-
-                img_url  = st.session_state.ai_image  if _is_http_url(st.session_state.ai_image)  else None
-                card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
-
-                rec_id = create_villain_record(
-                    owner_email=norm_email,
-                    villain_json=st.session_state.villain,
-                    style=st.session_state.villain.get("theme", style_key),
-                    image_url=img_url,
-                    card_url=card_url,
-                    version=1,
+            # Right-aligned layout: wide spacer left, narrow button column right
+            spacer, btn_col = st.columns([2, 1])
+            with btn_col:
+                st.download_button(
+                    label="⬇️ Download Villain Pack (ZIP)",
+                    data=zip_bytes,
+                    file_name=zip_name,
+                    mime="application/zip",
+                    key="btn_download_zip_pack",
+                    use_container_width=True,
+                    help="Portrait + Card + JSON (includes gender) in one file",
                 )
-                token = ensure_share_token(rec_id)
-                rec = get_villain(rec_id)
-                fields = rec.get("fields", {}) if rec else {}
-                public_url = fields.get("public_url", "")
-                share_link = public_url or f"(share token: {token})"
-                st.success(f"Saved! Share link: {share_link}")
+        except Exception as e:
+            st.warning(f"Couldn’t prepare ZIP: {e}")
 
-                # Lightweight social share (optional)
+        # 4) Save + Share Link (stacked directly under the ZIP, still right-aligned)
+        _, share_col = st.columns([2, 1])
+        with share_col:
+            if st.button("💾 Save + Get Share Link", use_container_width=True):
                 try:
-                    from config import APP_URL, DEFAULT_SHARE_TEXT
-                    render_share_mvp(st, share_link or APP_URL, DEFAULT_SHARE_TEXT)
-                except Exception:
-                    pass
-            except Exception as e:
-                st.error(f"Save failed: {e}")
+                    def _is_http_url(s: str) -> bool:
+                        s = str(s or "")
+                        return s.startswith("http://") or s.startswith("https://")
 
-        st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
-        st.markdown(f"**Power:** {villain['power']}")
-        st.markdown(f"**Weakness:** {villain['weakness']}")
-        st.markdown(f"**Nemesis:** {villain['nemesis']}")
-        st.markdown(f"**Lair:** {villain['lair']}")
-        st.markdown(f"**Catchphrase:** *{villain['catchphrase']}*")
+                    img_url  = st.session_state.ai_image  if _is_http_url(st.session_state.ai_image)  else None
+                    card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
 
-        crimes = villain.get("crimes", [])
+                    rec_id = create_villain_record(
+                        owner_email=norm_email,
+                        villain_json=st.session_state.villain,
+                        style=st.session_state.villain.get("theme", style_key),
+                        image_url=img_url,
+                        card_url=card_url,
+                        version=1,
+                    )
+                    token = ensure_share_token(rec_id)
+                    rec = get_villain(rec_id)
+                    fields = rec.get("fields", {}) if rec else {}
+                    public_url = fields.get("public_url", "")
+                    share_link = public_url or f"(share token: {token})"
+                    st.success(f"Saved! Share link: {share_link}")
+
+                    # Optional mini-share UI
+                    try:
+                        from config import APP_URL, DEFAULT_SHARE_TEXT
+                        render_share_mvp(st, share_link or APP_URL, DEFAULT_SHARE_TEXT)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
+
+    # ------------------ LEFT COLUMN: text/meta ------------------
+    with col_meta:
+        v = st.session_state.villain
+        st.markdown(f"### 🌙 {v['name']} aka *{v['alias']}*")
+        st.markdown(f"**Power:** {v['power']}")
+        st.markdown(f"**Weakness:** {v['weakness']}")
+        st.markdown(f"**Nemesis:** {v['nemesis']}")
+        st.markdown(f"**Lair:** {v['lair']}")
+        st.markdown(f"**Catchphrase:** *{v['catchphrase']}*")
+
+        crimes = v.get("crimes", [])
         if isinstance(crimes, str):
             crimes = [crimes] if crimes else []
         st.markdown("**Crimes:**")
@@ -931,10 +941,10 @@ if st.session_state.villain:
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;- {crime}", unsafe_allow_html=True)
 
         st.markdown(
-            f"**Threat Level:** {villain['threat_level']}" +
-            (f" — {villain.get('threat_text')}" if villain.get('threat_text') else "")
+            f"**Threat Level:** {v['threat_level']}" +
+            (f" — {v.get('threat_text')}" if v.get('threat_text') else "")
         )
-        st.markdown(f"**Faction:** {villain['faction']}")
+        st.markdown(f"**Faction:** {v['faction']}")
 
     # --- Full-width Origin (wraps under the image) ---
     st.markdown("**Origin:**")
@@ -968,6 +978,7 @@ if st.session_state.villain:
             st.rerun()
 
     st.markdown("---")
+
 
 
 # --- FAQ (above feedback) ---
