@@ -9,6 +9,7 @@ import io
 import re
 from typing import List, Tuple, Optional
 from optimization_utils import hash_villain, set_debug_info, dalle_price
+import io, zipfile, datetime, json, re
 
 try:
     import pytesseract
@@ -974,6 +975,73 @@ def generate_ai_portrait(villain):
             except Exception:
                 pass
             return placeholder
+
+def _safe_slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (name or "villain").lower()).strip("_")
+
+def villain_to_json(
+    villain: dict,
+    *,
+    portrait_filename: str | None = None,
+    card_filename: str | None = None,
+) -> str:
+    """
+    Produce a clean JSON payload for later re-use. Includes gender if present (or 'Unknown').
+    """
+    v = villain or {}
+    # Try both 'gender' and 'pronouns'—use what you already generate if present
+    gender = (v.get("gender") or v.get("sex") or "Unknown")
+    # Minimal, stable shape
+    data = {
+        "name":         v.get("name"),
+        "alias":        v.get("alias"),
+        "gender":       gender,
+        "threat_level": v.get("threat_level"),
+        "faction":      v.get("faction"),
+        "lair":         v.get("lair"),
+        "catchphrase":  v.get("catchphrase"),
+        "power":        v.get("power"),
+        "weakness":     v.get("weakness"),
+        "crimes":       v.get("crimes"),
+        "nemesis":      v.get("nemesis"),
+        "origin":       v.get("origin"),
+        "theme":        v.get("theme"),
+        "created_at":   datetime.datetime.utcnow().isoformat() + "Z",
+        "portrait_file": portrait_filename,
+        "card_file":     card_filename,
+        # you can add more fields later (stats, tags, etc.)
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+def build_villain_zip_bytes(
+    villain: dict,
+    *,
+    portrait_bytes: bytes | None,
+    card_bytes: bytes | None,
+) -> tuple[bytes, str]:
+    """
+    Bundle portrait.png, card.png, and villain.json into a single in-memory zip.
+    Returns (zip_bytes, zip_filename).
+    """
+    slug = _safe_slug(villain.get("name") or villain.get("alias") or "villain")
+    portrait_name = f"{slug}_portrait.png" if portrait_bytes else None
+    card_name     = f"{slug}_card.png"     if card_bytes     else None
+
+    payload_json = villain_to_json(
+        villain,
+        portrait_filename=portrait_name,
+        card_filename=card_name,
+    ).encode("utf-8")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        if portrait_bytes:
+            z.writestr(portrait_name, portrait_bytes)
+        if card_bytes:
+            z.writestr(card_name, card_bytes)
+        z.writestr(f"{slug}.json", payload_json)
+
+    return buf.getvalue(), f"{slug}_pack.zip"
 
 
 __all__ = [
