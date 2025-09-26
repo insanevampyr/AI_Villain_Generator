@@ -864,37 +864,31 @@ if st.session_state.villain:
         except Exception as e:
             st.warning(f"Card build failed (continuing without card): {e}")
 
-        # 3) Build ZIP + show RIGHT-ALIGNED buttons under the image
-        try:
-            zip_bytes, zip_name = build_villain_zip_bytes(
-                st.session_state.villain,
-                portrait_bytes=portrait_bytes,
-                card_bytes=card_bytes,
-            )
+    # 3) Build ZIP + show FULL-WIDTH buttons under the image (stacked)
+    try:
+        zip_bytes, zip_name = build_villain_zip_bytes(
+            st.session_state.villain,
+            portrait_bytes=portrait_bytes,
+            card_bytes=card_bytes,
+        )
+    except Exception as e:
+        st.warning(f"Couldn’t prepare ZIP: {e}")
+        zip_bytes, zip_name = None, None
 
-            # 3) Build ZIP + show FULL-WIDTH buttons under the image (stacked)
-            try:
-                zip_bytes, zip_name = build_villain_zip_bytes(
-                    st.session_state.villain,
-                    portrait_bytes=portrait_bytes,
-                    card_bytes=card_bytes,
-                )
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    if zip_bytes:
+        st.download_button(
+            label="⬇️ Download Villain Pack (ZIP)",
+            data=zip_bytes,
+            file_name=zip_name,
+            mime="application/zip",
+            key="btn_download_zip_pack",
+            use_container_width=True,
+            help="Portrait + Card + JSON (includes gender) in one file",
+        )
 
-                st.download_button(
-                    label="⬇️ Download Villain Pack (ZIP)",
-                    data=zip_bytes,
-                    file_name=zip_name,
-                    mime="application/zip",
-                    key="btn_download_zip_pack",
-                    use_container_width=True,   # ← takes the whole image column width
-                    help="Portrait + Card + JSON (includes gender) in one file",
-                )
-            except Exception as e:
-                st.warning(f"Couldn’t prepare ZIP: {e}")
-
-st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
 if st.button("💾 Save + Get Share Link", use_container_width=True):
     try:
