@@ -872,56 +872,65 @@ if st.session_state.villain:
                 card_bytes=card_bytes,
             )
 
-            # Right-aligned layout: wide spacer left, narrow button column right
-            spacer, btn_col = st.columns([2, 1])
-            with btn_col:
+            # 3) Build ZIP + show FULL-WIDTH buttons under the image (stacked)
+            try:
+                zip_bytes, zip_name = build_villain_zip_bytes(
+                    st.session_state.villain,
+                    portrait_bytes=portrait_bytes,
+                    card_bytes=card_bytes,
+                )
+
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
                 st.download_button(
                     label="⬇️ Download Villain Pack (ZIP)",
                     data=zip_bytes,
                     file_name=zip_name,
                     mime="application/zip",
                     key="btn_download_zip_pack",
-                    use_container_width=True,
+                    use_container_width=True,   # ← takes the whole image column width
                     help="Portrait + Card + JSON (includes gender) in one file",
                 )
-        except Exception as e:
-            st.warning(f"Couldn’t prepare ZIP: {e}")
+            except Exception as e:
+                st.warning(f"Couldn’t prepare ZIP: {e}")
 
-        # 4) Save + Share Link (stacked directly under the ZIP, still right-aligned)
-        _, share_col = st.columns([2, 1])
-        with share_col:
-            if st.button("💾 Save + Get Share Link", use_container_width=True):
-                try:
-                    def _is_http_url(s: str) -> bool:
-                        s = str(s or "")
-                        return s.startswith("http://") or s.startswith("https://")
+st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
-                    img_url  = st.session_state.ai_image  if _is_http_url(st.session_state.ai_image)  else None
-                    card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+if st.button("💾 Save + Get Share Link", use_container_width=True):
+    try:
+        from airtable_utils import create_villain_record, ensure_share_token, get_villain
 
-                    rec_id = create_villain_record(
-                        owner_email=norm_email,
-                        villain_json=st.session_state.villain,
-                        style=st.session_state.villain.get("theme", style_key),
-                        image_url=img_url,
-                        card_url=card_url,
-                        version=1,
-                    )
-                    token = ensure_share_token(rec_id)
-                    rec = get_villain(rec_id)
-                    fields = rec.get("fields", {}) if rec else {}
-                    public_url = fields.get("public_url", "")
-                    share_link = public_url or f"(share token: {token})"
-                    st.success(f"Saved! Share link: {share_link}")
+        def _is_http_url(s: str) -> bool:
+            s = str(s or "")
+            return s.startswith("http://") or s.startswith("https://")
 
-                    # Optional mini-share UI
-                    try:
-                        from config import APP_URL, DEFAULT_SHARE_TEXT
-                        render_share_mvp(st, share_link or APP_URL, DEFAULT_SHARE_TEXT)
-                    except Exception:
-                        pass
-                except Exception as e:
-                    st.error(f"Save failed: {e}")
+        img_url  = st.session_state.ai_image  if _is_http_url(st.session_state.ai_image)  else None
+        card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+
+        rec_id = create_villain_record(
+            owner_email=norm_email,
+            villain_json=st.session_state.villain,
+            style=st.session_state.villain.get("theme", style_key),
+            image_url=img_url,
+            card_url=card_url,
+            version=1,
+        )
+        token = ensure_share_token(rec_id)
+        rec = get_villain(rec_id)
+        fields = rec.get("fields", {}) if rec else {}
+        public_url = fields.get("public_url", "")
+        share_link = public_url or f"(share token: {token})"
+        st.success(f"Saved! Share link: {share_link}")
+
+        # Optional mini-share UI
+        try:
+            from config import APP_URL, DEFAULT_SHARE_TEXT
+            from faq_utils import render_share_mvp
+            render_share_mvp(st, share_link or APP_URL, DEFAULT_SHARE_TEXT)
+        except Exception:
+            pass
+    except Exception as e:
+        st.error(f"Save failed: {e}")
 
     # ------------------ LEFT COLUMN: text/meta ------------------
     with col_meta:
