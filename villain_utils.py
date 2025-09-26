@@ -1048,5 +1048,7 @@ __all__ = [
     "create_villain_card",
     "save_villain_to_log",
     "generate_ai_portrait",
-    "STYLE_THEMES"
+    "STYLE_THEMES",
+    "build_villain_zip_bytes",   # ← added
+    "villain_to_json"            # ← nice to have
 ]

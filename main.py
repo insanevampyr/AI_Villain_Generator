@@ -11,6 +11,8 @@ from email.mime.text import MIMEText
 import streamlit.components.v1 as components
 import io, zipfile
 from villain_utils import create_villain_card, build_villain_zip_bytes
+st.caption("build: unified-zip v1")
+
 
 
 from config import (
@@ -112,7 +114,6 @@ def _get_secret(key: str, default: str = "") -> str:
     return str(os.getenv(key, default))
 
 from villain_utils import (
-    create_villain_card,
     save_villain_to_log,
     STYLE_THEMES,
     generate_ai_portrait,
@@ -803,181 +804,118 @@ if st.session_state.villain:
     col_meta, col_img = st.columns([2, 3])
 
     with col_img:
+    # ---- Portrait preview ----
         if display_source:
             caption_text = "Default Portrait — replace with AI or upload" if is_default_image else "Current Portrait"
             st.image(display_source, caption=caption_text, use_container_width=True)
-
-            # --- Download portrait: AI image (direct) OR uploaded image (convert → PNG) ---
-            try:
-                import io, re
-                from PIL import Image
-
-                # Build portrait bytes for ALL cases (AI, uploaded, or default placeholder)
-                portrait_bytes = None
-                if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
-                    with open(st.session_state.ai_image, "rb") as _png:
-                        portrait_bytes = _png.read()
-                elif st.session_state.villain_image is not None:
-                    if isinstance(st.session_state.villain_image, str):
-                        # Path string (AI-generated or placeholder file)
-                        with open(st.session_state.villain_image, "rb") as f:
-                            portrait_bytes = f.read()
-                    else:
-                        # File-like object (from uploader)
-                        st.session_state.villain_image.seek(0)
-                        img = Image.open(st.session_state.villain_image).convert("RGBA")
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        portrait_bytes = buf.getvalue()
-
-                else:
-                    # Default placeholder
-                    portrait_bytes = _image_bytes("assets/AI_Villain_logo.png")
-
-                # Safe filename
-                slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
-
-                # --- First row (desktop): Save Portrait + Save Card ---
-                # --- One-click ZIP (portrait + card + JSON) and optional share link ---
-                try:
-                    import re
-                    from PIL import Image
-                except Exception:
-                    pass
-
-                # 1) Gather portrait bytes (AI, uploaded, or default)
-                portrait_bytes = None
-                if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
-                    with open(st.session_state.ai_image, "rb") as _png:
-                        portrait_bytes = _png.read()
-                elif st.session_state.villain_image is not None:
-                    # Uploaded (file-like) or path
-                    if isinstance(st.session_state.villain_image, str):
-                        if os.path.exists(st.session_state.villain_image):
-                            with open(st.session_state.villain_image, "rb") as f:
-                                portrait_bytes = f.read()
-                    else:
-                        st.session_state.villain_image.seek(0)
-                        img = Image.open(st.session_state.villain_image).convert("RGBA")
-                        b = io.BytesIO(); img.save(b, format="PNG"); portrait_bytes = b.getvalue()
-                else:
-                    # Default placeholder
-                    try:
-                        with open("assets/AI_Villain_logo.png", "rb") as f:
-            portrait_bytes = f.read()
-                    except Exception:
-                        portrait_bytes = None  # still fine; ZIP can omit portrait
-
-                # 2) Ensure we have a **card image** (PNG bytes). If not created yet, create it now (using current theme).
-                card_png_bytes = None
-                try:
-                    # If you already cached the card path, reuse it:
-                    if st.session_state.get("card_file") and os.path.exists(st.session_state.card_file):
-                        with open(st.session_state.card_file, "rb") as f:
-                            card_png_bytes = f.read()
-                    else:
-                        # Create a fresh card PNG file in your existing cards folder
-                        card_path = create_villain_card(
-                            st.session_state.villain,
-                            image_file=(st.session_state.ai_image if st.session_state.ai_image and os.path.exists(st.session_state.ai_image) else st.session_state.villain_image),
-                            theme_name=style_key
-                        )
-                        if card_path and os.path.exists(card_path):
-                            st.session_state.card_file = card_path
-                            with open(card_path, "rb") as f:
-                                card_png_bytes = f.read()
-                except Exception as e:
-                    st.warning(f"Card build failed (continuing without card): {e}")
-
-                # 3) Build ZIP bytes (portrait + card + villain.json including gender)
-                zip_bytes, zip_name = build_villain_zip_bytes(
-                    st.session_state.villain,
-                    portrait_bytes=portrait_bytes,
-                    card_bytes=card_png_bytes,
-                )
-
-                # 4) Download button for the whole pack
-                st.download_button(
-                    label="⬇️ Download Villain Pack (ZIP)",
-                    data=zip_bytes,
-                    file_name=zip_name,
-                    mime="application/zip",
-                    key="btn_download_zip_pack",
-                    use_container_width=True,
-                )
-
-                # 5) Optional: Save to Airtable + get public share link (like your old “Save to My Villains”)
-                c1, c2 = st.columns([1,1])
-                with c1:
-                    if st.button("💾 Save + Get Share Link", use_container_width=True):
-                        try:
-                            v = st.session_state.villain
-                            img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
-                            card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
-
-                            rec_id = create_villain_record(
-                                owner_email=norm_email,
-                                villain_json=v,                # you already store JSON-like dict here
-                                style=v.get("theme", style_key),
-                                image_url=img_url,
-                                card_url=card_url,
-                                version=1,
-                            )
-                            token = ensure_share_token(rec_id)
-                            rec = get_villain(rec_id)
-                            fields = rec.get("fields", {}) if rec else {}
-                            public_url = fields.get("public_url", "")
-                            share_link = public_url or f"(share token: {token})"
-                            st.success(f"Saved! Share link: {share_link}")
-                            # (Optional) show your existing social share UI
-                            try:
-                                from faq_utils import render_share_mvp
-                                render_share_mvp(share_link)
-                            except Exception:
-                                pass
-                        except Exception as e:
-                            st.error(f"Save failed: {e}")
-
-                with c2:
-                    # Keep a simple 'Save portrait only' fallback if you want (or remove this column entirely)
-                    pass
-
-
-                # --- Second row: Save to My Villains (full width) ---
-                if st.button("💾 Save to My Villains", key="btn_save_villain_below", use_container_width=True):
-                    try:
-                        v = st.session_state.villain
-                        img_url = st.session_state.ai_image if _is_http_url(st.session_state.ai_image) else None
-                        card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
-
-                        rec_id = create_villain_record(
-                            owner_email=norm_email,
-                            villain_json=v,
-                            style=v.get("theme", style_key),
-                            image_url=img_url,
-                            card_url=card_url,
-                            version=1,
-                        )
-                        token = ensure_share_token(rec_id)
-                        rec = get_villain(rec_id)
-                        fields = rec.get("fields", {}) if rec else {}
-                        public_url = fields.get("public_url", "")
-                        share_link = public_url or f"(share token: {token})"
-                        st.success(f"Saved! Share link: {share_link}")
-                    except Exception as e:
-                        st.error(f"Save failed: {e}")
-
-                # --- Share MVP (X + Facebook) ---
-                from config import APP_URL, DEFAULT_SHARE_TEXT  # one-time import near your other config imports
-                share_link = share_link if 'share_link' in locals() and share_link else APP_URL
-                render_share_mvp(st, share_link, DEFAULT_SHARE_TEXT)
-
-            except Exception as e:
-                st.warning(f"Couldn't offer portrait download: {e}")
         else:
             st.write("_No image available._")
 
-    with col_meta:
+     # ---- Villain Pack (ZIP): portrait + card + JSON (includes gender) ----
+        import io, os
+        from PIL import Image
+
+        def _bytes_from_any_image(src) -> bytes | None:
+            # Return PNG bytes from a path or an uploaded file-like object
+            if src is None:
+                return None
+            if hasattr(src, "read"):
+                src.seek(0)
+                im = Image.open(src).convert("RGBA")
+                b = io.BytesIO(); im.save(b, format="PNG")
+                return b.getvalue()
+            if isinstance(src, str) and os.path.exists(src):
+                with open(src, "rb") as f:
+                    return f.read()
+            return None
+
+        # 1) Portrait bytes (AI > uploaded > placeholder)
+        portrait_bytes = None
+        if st.session_state.ai_image and os.path.exists(st.session_state.ai_image):
+            with open(st.session_state.ai_image, "rb") as f:
+                portrait_bytes = f.read()
+        else:
+            portrait_bytes = _bytes_from_any_image(st.session_state.villain_image)
+            if portrait_bytes is None and os.path.exists("assets/AI_Villain_logo.png"):
+                with open("assets/AI_Villain_logo.png", "rb") as f:
+                    portrait_bytes = f.read()
+
+        # 2) Card bytes — create if missing (uses current theme)
+        card_bytes = None
+        try:
+            if st.session_state.get("card_file") and os.path.exists(st.session_state.card_file):
+                with open(st.session_state.card_file, "rb") as f:
+                    card_bytes = f.read()
+            else:
+                card_path = create_villain_card(
+                    st.session_state.villain,
+                    image_file=(st.session_state.ai_image if st.session_state.ai_image and os.path.exists(st.session_state.ai_image)
+                                else st.session_state.villain_image),
+                    theme_name=style_key,
+                )
+                if card_path and os.path.exists(card_path):
+                    st.session_state.card_file = card_path
+                    with open(card_path, "rb") as f:
+                        card_bytes = f.read()
+        except Exception as e:
+            st.warning(f"Card build failed (continuing without card): {e}")
+
+    # 3) Build and offer the ZIP
+    try:
+        zip_bytes, zip_name = build_villain_zip_bytes(
+            st.session_state.villain,
+            portrait_bytes=portrait_bytes,
+            card_bytes=card_bytes,
+        )
+        st.download_button(
+            label="⬇️ Download Villain Pack (ZIP)",
+            data=zip_bytes,
+            file_name=zip_name,
+            mime="application/zip",
+            key="btn_download_zip_pack",
+            use_container_width=True,
+            help="Portrait + Card + JSON (includes gender) in one file",
+        )
+    except Exception as e:
+        st.warning(f"Couldn’t prepare ZIP: {e}")
+
+    # 4) Save + Share Link (Airtable)
+    c1, _ = st.columns([1, 1])
+    with c1:
+        if st.button("💾 Save + Get Share Link", use_container_width=True):
+            try:
+                from airtable_utils import create_villain_record, ensure_share_token, get_villain
+                def _is_http_url(s: str) -> bool:
+                    s = str(s or "")
+                    return s.startswith("http://") or s.startswith("https://")
+
+                img_url  = st.session_state.ai_image  if _is_http_url(st.session_state.ai_image)  else None
+                card_url = st.session_state.card_file if _is_http_url(st.session_state.card_file) else None
+
+                rec_id = create_villain_record(
+                    owner_email=norm_email,
+                    villain_json=st.session_state.villain,
+                    style=st.session_state.villain.get("theme", style_key),
+                    image_url=img_url,
+                    card_url=card_url,
+                    version=1,
+                )
+                token = ensure_share_token(rec_id)
+                rec = get_villain(rec_id)
+                fields = rec.get("fields", {}) if rec else {}
+                public_url = fields.get("public_url", "")
+                share_link = public_url or f"(share token: {token})"
+                st.success(f"Saved! Share link: {share_link}")
+
+                # Lightweight social share (optional)
+                try:
+                    from config import APP_URL, DEFAULT_SHARE_TEXT
+                    render_share_mvp(st, share_link or APP_URL, DEFAULT_SHARE_TEXT)
+                except Exception:
+                    pass
+            except Exception as e:
+                st.error(f"Save failed: {e}")
+
         st.markdown(f"### 🌙 {villain['name']} aka *{villain['alias']}*")
         st.markdown(f"**Power:** {villain['power']}")
         st.markdown(f"**Weakness:** {villain['weakness']}")
@@ -1028,37 +966,6 @@ if st.session_state.villain:
             v["origin"] = _normalize_origin_names(v.get("origin", ""), v.get("name", ""), v.get("alias", ""))
             st.session_state.villain = v
             st.rerun()
-
-    # If the user clicked "Save Card", build and auto-download
-    if st.session_state.get("trigger_card_dl"):
-        import base64, re, os
-        from streamlit.components.v1 import html as st_html
-
-        villain = st.session_state.villain
-        image_for_card = (
-            st.session_state.ai_image
-            or st.session_state.villain_image
-            or "assets/AI_Villain_logo.png"
-        )
-        try:
-            path = create_villain_card(villain, image_file=image_for_card, theme_name=villain.get("theme", style_key))
-            with open(path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode("utf-8")
-            # Safe filename from villain name
-            slug = re.sub(r"[^a-z0-9]+", "_", villain["name"].lower()).strip("_")
-            fname = f"{slug}_card.png"
-            # Auto-click a hidden download link (one click total for the user)
-            st_html(f'''
-                <a id="auto_dl" href="data:image/png;base64,{b64}" download="{fname}" style="display:none">download</a>
-                <script>setTimeout(()=>document.getElementById("auto_dl").click(), 50);</script>
-            ''', height=0)
-            st.success("Card generated. Your download should start automatically.")
-        except Exception as e:
-            st.error(f"Card creation failed: {e}")
-        finally:
-            # Reset the trigger so it only fires once per click
-            st.session_state.trigger_card_dl = False
-            st.session_state.card_file = None
 
     st.markdown("---")
 
