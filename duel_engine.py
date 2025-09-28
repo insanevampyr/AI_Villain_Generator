@@ -862,10 +862,6 @@ def default_villains() -> Tuple[Villain, Villain, Arena]:
     chosen = random.choice(lairs)
     return aria, chem, Arena(name=chosen["name"], tags=chosen["tags"])
 
-# --------------- Main ---------------
-def _print_cost_bill():
-    pass  # placeholder overwritten above
-
 def main():
     a, b, arena = default_villains()
     dr = run_duel(a,b,arena, rounds=ROUNDS)
