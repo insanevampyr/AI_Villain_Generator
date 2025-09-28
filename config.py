@@ -1627,3 +1627,29 @@ def compendium_pick_power(style_key: str, include_uber: bool) -> dict | None:
         "threat_text": (p.get("threat_levels") or {}).get(label, ""),
         "crimes": crimes,
     }
+
+
+# ==== IMAGE PROMPT GUARDRAIL (cheap, pre-image) ====
+# Turn the pre-image rewrite on/off (cheap text call; NOT a second image)
+ENABLE_IMAGE_PROMPT_GUARDRAIL = True
+
+# Small, inexpensive model for the rewrite step
+IMAGE_PROMPT_GUARDRAIL_MODEL = os.getenv("IMAGE_PROMPT_GUARDRAIL_MODEL", "gpt-4o-mini")
+
+# Gently bias scenes toward contemporary United States (places, props, wardrobe, architecture)
+FORCE_AMERICAN_CONTEXT = True
+
+# Notes injected when we nudge toward a US setting (neutral; no ethnicity forced or excluded)
+AMERICAN_CONTEXT_NOTES = (
+    "Set the scene in contemporary United States context: US urban or industrial locations, "
+    "brick alleys, rooftop water towers, subway platforms, roadside diners, steel warehouses, "
+    "city street backdrops, or contemporary interiors. Use wardrobe common in the US today "
+    "(streetwear, denim, leather jackets, tactical gear, hoodies, work boots)."
+)
+
+# Hard rule: never ask for written words/letters/numbers/logos/signage in the image
+NO_TEXT_IMAGE_RULES = (
+    "Do NOT include any visible words, letters, numbers, symbols, logos, emblems, captions, "
+    "subtitles, UI, or signage on clothing, walls, props, billboards, posters, or signs. "
+    "Avoid any written text in the image."
+)

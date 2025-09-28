@@ -1052,3 +1052,65 @@ __all__ = [
     "build_villain_zip_bytes",   # ← added
     "villain_to_json"            # ← nice to have
 ]
+
+# ==== Visual-only image prompt guardrail (cheap) ====
+from typing import Dict
+
+def build_visual_only_image_prompt(
+    openai_client,
+    raw_prompt: str,
+    model_name: str,
+    force_american_context: bool,
+    american_context_notes: str,
+    no_text_rules: str
+) -> str:
+    """
+    Converts a raw, possibly wordy/loose prompt into a concise, visual-only image prompt.
+    - Removes/avoids any request for written words/letters/logos in the picture.
+    - Nudges scene to a contemporary United States context (locations/wardrobe/props/architecture),
+      without specifying ethnicity or excluding anyone, unless your character explicitly states it.
+    Returns a single short paragraph for DALL·E-style models.
+    """
+
+    system = (
+        "You turn character or scene ideas into clean, visual-only image prompts. "
+        "Focus on subject, pose, outfit, lighting, camera, composition, background, mood, and materials. "
+        "Never request written words, letters, numbers, logos, captions, UI, or signs in the picture."
+    )
+
+    american = (american_context_notes if force_american_context else "")
+    user = (
+        f"RAW PROMPT:\n{raw_prompt}\n\n"
+        "Rewrite as a single, concise image prompt (one short paragraph). "
+        "Keep it purely visual (no text elements). "
+        f"{no_text_rules}\n"
+        f"{american}\n"
+        "Include: subject look, outfit, pose/action, environment, background detail, lighting, camera framing, mood. "
+        "Exclude: any mention of written words/letters/numbers/logos/signs/posters/name tags. "
+        "Do not specify or exclude ethnicity unless it is explicitly specified in the character description."
+    )
+
+    try:
+        resp = openai_client.chat.completions.create(
+            model=model_name,
+            messages=[{"role":"system","content":system},{"role":"user","content":user}],
+            max_tokens=180,
+            temperature=0.7,
+        )
+        cleaned = (resp.choices[0].message.content or "").strip()
+        # Safety fallback if model returns something empty:
+        if not cleaned:
+            raise ValueError("empty guardrail output")
+        # Make extra sure no ‘text’ directions slipped in:
+        banned = ["text", "letters", "numbers", "caption", "logo", "sign", "poster", "label", "watermark", "subtitle"]
+        lowered = cleaned.lower()
+        if any(w in lowered for w in banned):
+            # prune anything after a banned word to be safe
+            cleaned = cleaned.split(".")[0].strip()
+        return cleaned
+    except Exception:
+        # Final fallback: raw prompt + simple, explicit no-text + US nudge
+        parts = [raw_prompt.strip(), no_text_rules]
+        if force_american_context:
+            parts.append(american_context_notes)
+        return " ".join(p for p in parts if p).strip()
