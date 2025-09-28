@@ -171,6 +171,22 @@ def _injury_penalty(label: str, ledger: dict, tactic_hint: str) -> int:
         pen += 1
     return _bounded(pen, 0, 3)
 
+def _status_penalty(label: str, ledger: dict) -> Tuple[int, str]:
+    """Return (extra_penalty_points, status) and keep status as-is for the round.
+       Penalties are *additive* on top of injury penalties."""
+    st = (ledger.get("status", {}) or {}).get(label, STATUS_NORMAL)
+    if st == STATUS_PRONE:
+        # Heavier tax: standing up is costly (lose or halve turn).
+        return (3, st)
+    if st == STATUS_HELD:
+        # Breaking a hold is hard; costs even more unless freed.
+        return (4, st)
+    if st == STATUS_STUN:
+        # Light tax: action is slower and sloppy.
+        return (2, st)
+    return (0, st)
+
+
 def _round_delta(attacker: Villain, defender: Villain, arena: Arena,
                  rng: random.Random, stagger_penalty: int, combo: int,
                  extra_penalty: int = 0) -> Tuple[int, Dict[str,int]]:
@@ -251,6 +267,7 @@ AM_LOCALE = "Use American English and US visual references (signage, fittings, v
 ROUND_SYSTEM = f"""You are narrating one round of a cinematic comic-book style duel.
 Rules:
 - Present tense, 2–3 vivid sentences per villain. {VIOLENCE_TEXT}
+- Entangling (wrapping/pinning) only works with chain/rope/cable/vine/wire that the attacker physically grabs or yanks; kicks alone cannot make objects auto-wrap.
 - Villains play by no rules: cheap shots, feints, traps, grapples, improvised weapons, environment abuse.
 - Powers must be used in varied, inventive ways: offense, defense, mobility, area denial, grapples, counters, feints, amplifiers (ricochets, reflections), combos with props or terrain.
 - Each villain must ATTACK or COUNTER the other; no posing.
@@ -450,6 +467,29 @@ def _parse_round_text(txt: str) -> Tuple[str,str,Optional[str]]:
             a_text=a_text or " ".join(s[:mid]); b_text=b_text or " ".join(s[mid:])
     return a_text.strip(), b_text.strip(), (camera.strip() if camera else None)
 
+# --- Combat status flags
+STATUS_NORMAL = "normal"
+STATUS_PRONE  = "prone"
+STATUS_STUN   = "stunned"
+STATUS_HELD   = "held"     # pinned / restrained / grappled
+
+# --- Phrases we scan for to set status from narration
+STUN_PATTERNS = [
+    r'\b(stunned|dazed|reeling|seeing\s+double|blurry\s+vision|ringing\s+ears|glass[y|ed]\s+eyes)\b',
+    r'\b(concuss|black(?:ed)?\s*out)\b',
+]
+
+HELD_PATTERNS = [
+    r'\b(held\s+down|pinned\s+(to|against)|wrenched\s+into\s+a\s+hold|chokes? (him|her|them)\s+out|armbar|headlock|grappled)\b',
+    r'\b(chain|rope|cable|vine)s?\s+(wraps|coils|tightens)\b',
+]
+
+# If they break free, we’ll clear held/prone:
+BREAK_FREE_PATTERNS = [
+    r'\b(breaks?\s+free|tears?\s+loose|rips?\s+it\s+off|wrenches?\s+out\s+of\s+the\s+hold|shoves?\s+them\s+off)\b',
+]
+
+
 # --------------- Continuity auto-parser ---------------
 INJURY_PATTERNS = [
     (r'\b(rib|ribs).*crack', 'cracked ribs'),
@@ -465,6 +505,11 @@ KNOCKDOWN_PATTERNS = [
 ]
 PROP_PICK_PAT = r'(grabs|snatches|rips|yanks|picks up|wields)\s+(the\s+)?(?P<prop>[\w\s\-]+)'
 PROP_BREAK_PAT = r'(?P<prop>[\w\s\-]+)\s+(shatter|break|snap|splinter)s?'
+# Which props can *actually* bind/entangle?
+def _entangle_capable(prop_name: str) -> bool:
+    p = (prop_name or "").lower()
+    return any(key in p for key in ["chain","rope","cable","vine","wire","net","hose"])
+
 
 HAZARD_SPAWNERS = [
     (r'\bglass\b', 'glass shards on floor'),
@@ -509,6 +554,36 @@ def _update_continuity_from_panels(a_text: str, b_text: str, ledger: dict, a_lab
                 pos_history[r_idx] = label
                 events.append(f"{label}: knocked prone")
                 break
+        
+        # STUNNED?
+        for pat in STUN_PATTERNS:
+            if re.search(pat, lt):
+                ledger["status"][label] = STATUS_STUN
+                events.append(f"{label}: stunned")
+                break
+
+        # HELD/PINNED?
+        for pat in HELD_PATTERNS:
+            if re.search(pat, lt):
+                # Only accept "wrapped/pinned" if they physically have a binder or mention a grapple.
+                binder = in_hand.get(label)
+                has_grapple_word = bool(re.search(r'\b(grab|grapple|choke|pin|lock|clinch)\b', lt))
+                if binder and _entangle_capable(binder) or has_grapple_word:
+                    ledger["status"][label] = STATUS_HELD
+                    events.append(f"{label}: held/pinned")
+                else:
+                    # Downgrade mentally: treat it as a trip/snag (no magical auto-wrap).
+                    _append_unique(hazards, "snagging debris")
+                    events.append("Note: entangle attempt adjusted to realistic snag/trip (no auto-wrap without chain/rope/cable/vine).")
+                break
+
+        for pat in BREAK_FREE_PATTERNS:
+            if re.search(pat, lt):
+                if ledger["status"].get(label) in (STATUS_HELD, STATUS_PRONE):
+                    ledger["status"][label] = STATUS_NORMAL
+                    events.append(f"{label}: breaks free / back to feet")
+                break
+
 
         if any(w in lt for w in ["stagger","reeling","dazed","winded","off-balance","opens","opening","limp","hobble","wobble"]):
             openings[label] = "off-balance; vulnerable next beat"
@@ -557,6 +632,7 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
     client = _client()
 
     ledger: Dict[str, any] = {
+        "status": {a.label(): STATUS_NORMAL, b.label(): STATUS_NORMAL},
         "injuries": {a.label(): [], b.label(): []},
         "hazards": [],
         "props_in_play": [],
@@ -628,6 +704,13 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
 
         pen_a = _injury_penalty(a.label(), ledger, tactic_a)
         pen_b = _injury_penalty(b.label(), ledger, tactic_b)
+        stat_pen_a, stat_a = _status_penalty(a.label(), ledger)
+        stat_pen_b, stat_b = _status_penalty(b.label(), ledger)
+
+        # Total penalty per actor combines injuries + status
+        pen_a += stat_pen_a
+        pen_b += stat_pen_b
+
         ledger["penalties"][r] = (pen_a, pen_b)
 
         a_first = (a_total >= b_total) if r > 2 else rng.random() < 0.5
@@ -651,12 +734,28 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
 
         _update_continuity_from_panels(a_panel, b_panel, ledger, a.label(), b.label(), r)
 
+        # Enforce visible recovery if someone was disadvantaged
         last_prone = ledger.get("pos_history", {}).get(r-1)
-        if last_prone:
-            if last_prone == a.label() and not re.search(r'\b(gets? up|scrambl|push(es)? up|clambers|rises)\b', a_panel, flags=re.IGNORECASE):
-                a_panel = f"{a.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + a_panel
-            if last_prone == b.label() and not re.search(r'\b(gets? up|scrambl|push(es)? up|clambers|rises)\b', b_panel, flags=re.IGNORECASE):
-                b_panel = f"{b.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + b_panel
+        status = ledger.get("status", {})
+        # A: enforce recovery text if needed
+        if last_prone == a.label() and not re.search(r'\b(gets? up|scrambl|push(?:es)? up|clambers|rises)\b', a_panel, flags=re.IGNORECASE):
+            a_panel = f"{a.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + a_panel
+            status[a.label()] = STATUS_NORMAL
+        elif status.get(a.label()) == STATUS_HELD and not re.search(r'\b(breaks?\s+free|wrenches?\s+out|tears?\s+loose|shoves?\s+off)\b', a_panel, flags=re.IGNORECASE):
+            a_panel = f"{a.label()} strains against the restraint, fighting to wrench free. " + a_panel
+            # keep HELD if not freed this beat
+        elif status.get(a.label()) == STATUS_STUN and not re.search(r'\b(shakes?\s+it\s+off|blinks?\s+clear|steadies)\b', a_panel, flags=re.IGNORECASE):
+            a_panel = f"{a.label()} blinks hard, vision swimming, trying to steady. " + a_panel
+            # may remain STUN one more beat
+
+        # B: enforce recovery for B
+        if last_prone == b.label() and not re.search(r'\b(gets? up|scrambl|push(?:es)? up|clambers|rises)\b', b_panel, flags=re.IGNORECASE):
+            b_panel = f"{b.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + b_panel
+            status[b.label()] = STATUS_NORMAL
+        elif status.get(b.label()) == STATUS_HELD and not re.search(r'\b(breaks?\s+free|wrenches?\s+out|tears?\s+loose|shoves?\s+off)\b', b_panel, flags=re.IGNORECASE):
+            b_panel = f"{b.label()} strains against the restraint, fighting to wrench free. " + b_panel
+        elif status.get(b.label()) == STATUS_STUN and not re.search(r'\b(shakes?\s+it\s+off|blinks?\s+clear|steadies)\b', b_panel, flags=re.IGNORECASE):
+            b_panel = f"{b.label()} blinks hard, vision swimming, trying to steady. " + b_panel
 
         events = ledger.get("round_events", {}).get(r, [])
         ev_line = "; ".join(events) if events else ""
