@@ -61,46 +61,6 @@ def _auto_tags(lair_name: str) -> list[str]:
         tags.update(["enclosed","props","low_light"])
     return sorted(tags)
 
-def load_villain_from_json(path: str) -> Villain:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"[DEBUG] File not found: {path}")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        raise ValueError(f"[DEBUG] JSON parse error for {path}: {e}")
-
-    # Required-ish fields
-    name  = data.get("name") or "[Unnamed]"
-    alias = data.get("alias") or None
-    powers = data.get("power") or data.get("powers") or ""
-    powers = [powers] if isinstance(powers, str) else (powers or [])
-    weaknesses = data.get("weakness") or data.get("weaknesses") or ""
-    weaknesses = [weaknesses] if isinstance(weaknesses, str) else (weaknesses or [])
-    catchphrase = data.get("catchphrase") or None
-    gender = data.get("gender") or ""
-    subj, obj, pos = _pronouns_from_gender(gender)
-
-    v = Villain(
-        name=name,
-        alias=alias,
-        powers=powers,
-        weaknesses=weaknesses,
-        catchphrase=catchphrase,
-        vibe=data.get("theme") or None,
-        subj=subj, obj=obj, pos=pos
-    )
-
-    # Return villain + lair string (so caller can decide arena)
-    return v, (data.get("lair") or "").strip()
-
-
-WRAP = 92
-ROUNDS = int(os.getenv("DUEL_ROUNDS", "10"))
-USE_API = os.getenv("DUEL_USE_OPENAI", "1").strip().lower() in ("1","true","on")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")  # good quality/cost
-TEMP = float(os.getenv("DUEL_TEMPERATURE", "0.85"))
-
 # ============================ Data ============================
 
 @dataclass
@@ -116,7 +76,8 @@ class Villain:
     pos: str = "their"
 
     def label(self) -> str:
-        return f"{self.name} ({self.alias})" if self.alias else self.name
+        # Always use the alias if there is one; otherwise fall back to name.
+        return self.alias or self.name
 
 @dataclass
 class Arena:
@@ -148,6 +109,12 @@ class DuelResult:
 
 # ============================ Utils ============================
 
+WRAP = 92
+ROUNDS = int(os.getenv("DUEL_ROUNDS", "10"))
+USE_API = os.getenv("DUEL_USE_OPENAI", "1").strip().lower() in ("1","true","on")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")  # good quality/cost
+TEMP = float(os.getenv("DUEL_TEMPERATURE", "0.85"))
+
 def _wrap(s: str) -> str:
     return textwrap.fill(s.strip(), width=WRAP)
 
@@ -155,6 +122,7 @@ def _bounded(n: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, n))
 
 def _name(v: Villain) -> str:
+    # For score lines; alias-first already by label()
     return v.alias or v.name
 
 # ============================ Momentum ============================
@@ -203,7 +171,14 @@ def _round_delta(attacker: Villain, defender: Villain, arena: Arena,
     base["delta"] = delta
     return delta, base
 
-# ============================ OpenAI I/O ============================
+# ============================ OpenAI I/O + Cost ============================
+
+# === Cost tracking (simple totals) ===
+COST_LOG = {"calls": [], "total_input_tokens": 0, "total_output_tokens": 0}
+# Set real prices via env if desired:
+# e.g., PRICE_IN_PER_1K=0.003, PRICE_OUT_PER_1K=0.006 for many mini models
+PRICE_IN_PER_1K = float(os.getenv("PRICE_IN_PER_1K", "0.003"))
+PRICE_OUT_PER_1K = float(os.getenv("PRICE_OUT_PER_1K", "0.006"))
 
 def _client():
     if not USE_API:
@@ -255,7 +230,11 @@ Continuity:
 - You are given a ledger of existing injuries, hazards, and props. These persist across rounds.
 - Reference or escalate them naturally (e.g., if “acid burns on face” exist, vision may blur).
 - Do not drop injuries unless explicitly healed/regenerated.
-- Healing only if consistent with powers (e.g., Aria can regenerate at the cost of focus). If done, say so.
+- Healing only if consistent with powers. If done, say so.
+- Props are PHYSICAL: if a prop is used, show it being picked up, dragged, kicked, thrown, or ripped free. Nothing “appears in a hand.”
+- Positional disadvantage matters: if a fighter is prone, flanked, or struck from behind, they must visibly RECOVER before acting; severe disadvantage can cost that fighter their turn this round.
+- Per-round prop budget: 3–4 foreground items max. Use at most one prop per fighter unless a carry-over item is already in-hand.
+- Use ONLY the props listed in the round brief / continuity; do not invent new items.
 
 Momentum:
 - You are given momentum deltas; scale severity accordingly:
@@ -281,6 +260,8 @@ Rules:
 - Keep tone brutal but cinematic (R-rated violence is fine, no sexual content).
 - Ban odd phrasing (no “pinning angles,” no detached abstractions).
 - Show finality: one fighter is clearly downed.
+- The winning blow should be primarily powered by the winner's abilities; a surviving prop may be combined or used alone if it heightens the moment.
+- Props are optional in the finisher; reuse 1–2 iconic ones only if it truly serves the final beat.
 """
 
 def _scene_setter_messages(a: Villain, b: Villain, arena: Arena) -> List[Dict]:
@@ -290,7 +271,7 @@ def _scene_setter_messages(a: Villain, b: Villain, arena: Arena) -> List[Dict]:
 Rules:
 - Style: 3–5 sentences, present tense, vivid, comic-panel style.
 - Describe the chosen arena, its atmosphere, lighting, and hazards.
-- Mention 2–3 plausible props or hazards in the environment (hoses, chains, vats, scaffolding, etc).
+- Mention 2–3 plausible props or hazards that naturally fit this arena.
 - End with an optional CAMERA cue (once).
 - Do NOT describe the villains yet; only set the stage."""},
         {"role": "user", "content": f"""
@@ -302,10 +283,12 @@ Arena: {arena.name} (tags: {', '.join(arena.tags)})
 """}
     ]
 
+# ============================ Round Prompt Builder ============================
+
 def _round_user_prompt(a: Villain, b: Villain, arena: Arena, ledger: Dict, round_idx: int) -> str:
     """
     Builds the per-round USER content for Narration Mode.
-    We provide compact continuity so the model can escalate injuries/props/hazards.
+    We provide compact continuity so the model can escalate injuries/props/hazards and respect position.
     """
     a_label = a.label()
     b_label = b.label()
@@ -317,6 +300,7 @@ def _round_user_prompt(a: Villain, b: Villain, arena: Arena, ledger: Dict, round
     props   = ledger.get("props_in_play", []) or []
     openings_a = (ledger.get("openings", {}).get(a_label) or "").strip()
     openings_b = (ledger.get("openings", {}).get(b_label) or "").strip()
+    pos_disadv = ledger.get("positional_disadvantage", "") or ""
 
     # Compose a compact continuity block
     cont_lines = []
@@ -327,6 +311,8 @@ def _round_user_prompt(a: Villain, b: Villain, arena: Arena, ledger: Dict, round
     if openings_a or openings_b:
         cont_lines.append(f"- Openings — {a_label}: " + (openings_a or "none"))
         cont_lines.append(f"- Openings — {b_label}: " + (openings_b or "none"))
+    if pos_disadv:
+        cont_lines.append(f"- Positional disadvantage: {pos_disadv}")
 
     continuity_text = "\n".join(cont_lines)
 
@@ -337,18 +323,26 @@ def _round_user_prompt(a: Villain, b: Villain, arena: Arena, ledger: Dict, round
         vibe = f" | vibe: {v.vibe}" if v.vibe else ""
         return f"{v.label()} | pronouns: {v.subj}/{v.obj}/{v.pos}{vibe}\n  powers: {pw}\n  weaknesses: {wk}"
 
+    # Arena signature bullets (if any were generated in Prop Pack)
+    sig = ledger.get("ARENA_SIGNATURE") or []
+    sig_line = ("; ".join(sig[:5])) if sig else ", ".join(arena.tags) if arena.tags else "—"
+
+    # Props in play detail lines (we just show names; physical handling enforced by system text)
+    prop_lines = ledger.get("props_in_play") or []
+
     return (
         f"Round {round_idx}\n"
-        f"ARENA: {arena.name} (tags: {', '.join(arena.tags) if arena.tags else '—'})\n\n"
+        f"ARENA: {arena.name} | Signature: {sig_line}\n\n"
         f"VILLAIN A (first block must be for this fighter):\n{_brief(a)}\n\n"
         f"VILLAIN B (second block must be for this fighter):\n{_brief(b)}\n\n"
-        f"CONTINUITY LEDGER (carry across rounds; escalate naturally):\n{continuity_text}\n\n"
+        f"PROPS IN PLAY (foreground, 3–4 max this round):\n" +
+        (("- " + "\n- ".join(prop_lines)) if prop_lines else "none") + "\n\n" +
+        "CONTINUITY (carry across rounds; escalate naturally):\n" + continuity_text + "\n\n" +
         "OUTPUT EXACTLY:\n"
         "A: <2–3 present-tense sentences for Villain A attacking/countering with consequences>\n"
         "B: <2–3 present-tense sentences for Villain B attacking/countering with consequences>\n"
         "Optionally one line: CAMERA: <very short angle>. No extra text."
     )
-
 
 def _round_messages(a, b, arena, ledger, round_idx, a_total, b_total, total_rounds):
     rounds_left = total_rounds - round_idx
@@ -372,7 +366,7 @@ def _round_messages(a, b, arena, ledger, round_idx, a_total, b_total, total_roun
     )
 
     sys = ROUND_SYSTEM + "\n" + scoring_ctx
-    user = _round_user_prompt(a, b, arena, ledger, round_idx)  # your existing builder
+    user = _round_user_prompt(a, b, arena, ledger, round_idx)
     return [
         {"role": "system", "content": sys},
         {"role": "user", "content": user},
@@ -396,8 +390,105 @@ def _chat_call(client, messages, max_tokens=500) -> str:
             temperature=TEMP,
             max_tokens=max_tokens,
         )
+        # === Usage & Cost tracking (best-effort; tolerate missing fields) ===
+        try:
+            u = getattr(resp, "usage", None)
+            in_tok  = int(getattr(u, "prompt_tokens", 0) or 0)
+            out_tok = int(getattr(u, "completion_tokens", 0) or 0)
+            COST_LOG["total_input_tokens"]  += in_tok
+            COST_LOG["total_output_tokens"] += out_tok
+            cost = (in_tok/1000.0)*PRICE_IN_PER_1K + (out_tok/1000.0)*PRICE_OUT_PER_1K
+            COST_LOG["calls"].append({
+                "in_tokens": in_tok,
+                "out_tokens": out_tok,
+                "cost_usd": round(cost, 6),
+                "max_tokens": max_tokens
+            })
+        except Exception:
+            pass
         return (resp.choices[0].message.content or "").strip()
     return _retry_call(_do)
+
+# ============================ Prop Pack (Pre-duel) ============================
+
+def _prop_pack_messages(a: Villain, b: Villain, arena: Arena) -> list:
+    """One-time pre-duel 'Prop Pack' planning prompt: concise, lair-based props & events."""
+    sys = (
+        "You are a fight scene planner. Generate an environment 'Prop Pack' tailored to the arena (lair) and these two villains. "
+        "Keep output concise and practical; planning only, no narration."
+    )
+    user = f"""Arena (Lair): {arena.name}
+Lair Tags/Notes: {', '.join(arena.tags) if arena.tags else '—'}
+
+Villain A: {a.label()} — powers: {', '.join(a.powers) if a.powers else '—'}
+Villain B: {b.label()} — powers: {', '.join(b.powers) if b.powers else '—'}
+
+Return:
+1) ARENA_SIGNATURE (3–6 short bullets): setting/era, mood, lighting, materials, verticality, ambient/weather.
+2) PROP_CATALOG (~12 items). Each:
+   - name (short)
+   - category {{weapon, cover, hazard, mobility, ambient, objective}}
+   - status_start {{intact, unstable, sparking, wet, locked, slippery, crowded}}
+   - mass {{handheld, person, heavy, structural}}
+   - interaction_hooks (who benefits & how; e.g., kinetic-friendly, reflective/illusion-tricky, chain-reaction risk)
+   - uniqueness_rule (e.g., '2 uses then breaks', 'single appearance', or 'persists')
+   - round_weight 1–3
+3) ENV_EVENTS (2–3 optional): arena-wide triggers tied to catalog items (e.g., 'if skylight breaks → glass shard hazard next round').
+
+Constraints:
+- Derive everything from the lair identity; style is unrestricted as long as it fits the lair.
+- Items must feel physically present; if used later, they are picked up, pushed, dragged, kicked, or thrown (no spontaneous appearances).
+- Do NOT assume prior fights; this duel is fresh.
+- Keep it compact and readable."""
+    return [{"role": "system", "content": sys},
+            {"role": "user",   "content": user}]
+
+def _choose_props_for_round(ledger: dict, max_props: int = 4) -> list:
+    """
+    Pick 3–4 foreground props from the PROP_CATALOG by weight, avoiding cooldowns/overuse.
+    Light and simple on purpose; we are not writing a full game engine here.
+    """
+    catalog = ledger.get("PROP_CATALOG") or []
+    used = ledger.setdefault("prop_uses", {})
+    cooldowns = ledger.setdefault("prop_cooldowns", {})
+    destroyed = set(ledger.get("destroyed_props", []))
+
+    # filter out destroyed or cooling down
+    cand = []
+    for item in catalog:
+        name = (item.get("name") or "").strip()
+        if not name or name in destroyed:
+            continue
+        if cooldowns.get(name, 0) > 0:
+            continue
+        weight = 1
+        try:
+            weight = int(item.get("round_weight") or 1)
+        except Exception:
+            weight = 1
+        rule = (item.get("uniqueness_rule") or "").lower()
+        # simple overuse guard
+        times_used = used.get(name, 0)
+        if "single" in rule and times_used >= 1:
+            continue
+        if "2 uses" in rule and times_used >= 2:
+            continue
+        cand.extend([item] * max(1, weight))
+
+    # random-ish variety with bias from weights
+    random.shuffle(cand)
+    picked = []
+    seen = set()
+    for it in cand:
+        if len(picked) >= max_props:
+            break
+        nm = it.get("name")
+        if nm and nm not in seen:
+            picked.append(it); seen.add(nm)
+
+    # update 'props_in_play' list (just names for the round brief)
+    ledger["props_in_play"] = [it.get("name") for it in picked if it.get("name")]
+    return picked
 
 # ============================ Parsing (Narration Mode) ============================
 
@@ -460,19 +551,58 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
         "hazards": [],
         "props_in_play": [],
         "openings": {a.label(): "", b.label(): ""},
-        "banlist": []
+        "banlist": [],
+        "positional_disadvantage": ""  # textual note like "A is prone and flanked; recovery likely costs their turn"
     }
 
     # Scene-setter
     scene_txt = _chat_call(client, _scene_setter_messages(a,b,arena), max_tokens=450)
     scene = scene_txt.strip()
 
-    # Seed props/hazards from scene text into the ledger
-    seed_keywords = ["chain", "hose", "vat", "drum", "scaffold", "pipe", "glass", "acid", "toxin", "steam"]
-    lower_scene = scene.lower()
-    for word in seed_keywords:
-        if word in lower_scene and word not in ledger["props_in_play"]:
-            ledger["props_in_play"].append(word)
+    # === One-time Prop Pack (dynamic props from chosen lair) ===
+    prop_msgs = _prop_pack_messages(a, b, arena)
+    prop_text = _chat_call(client, prop_msgs, max_tokens=500)
+    # Keep it simple: stash the raw text; also parse out best-effort lists by naive scanning.
+    ledger["PROP_PACK_RAW"] = prop_text
+    ledger["ARENA_SIGNATURE"] = []
+    ledger["PROP_CATALOG"] = []
+    ledger["ENV_EVENTS"] = []
+
+    # naive parsing: split lines and bucket by headers (forgiving)
+    lines = [ln.strip("-• ").strip() for ln in prop_text.splitlines() if ln.strip()]
+    bucket = None
+    for ln in lines:
+        lo = ln.lower()
+        if "arena_signature" in lo:
+            bucket = "sig"; continue
+        if "prop_catalog" in lo:
+            bucket = "cat"; continue
+        if "env_events" in lo or "environment" in lo:
+            bucket = "ev"; continue
+        if bucket == "sig":
+            ledger["ARENA_SIGNATURE"].append(ln)
+        elif bucket == "cat":
+            # expect lines like "name: X, category: Y, status_start: Z, ..."
+            item = {"raw": ln}
+            try:
+                parts = [p.strip() for p in ln.split(",")]
+                for p in parts:
+                    if ":" in p:
+                        k, v = p.split(":", 1)
+                        item[k.strip().lower()] = v.strip()
+                item["name"] = item.get("name") or item.get("raw")
+            except:
+                item["name"] = item.get("raw")
+            ledger["PROP_CATALOG"].append(item)
+        elif bucket == "ev":
+            ledger["ENV_EVENTS"].append(ln)
+
+    # Initialize other prop continuity
+    ledger.setdefault("props_in_play", [])
+    ledger.setdefault("destroyed_props", [])
+    ledger.setdefault("hazards", ledger.get("hazards", []))
+    ledger.setdefault("prop_uses", {})
+    ledger.setdefault("prop_cooldowns", {})
 
     # Scoreboard + state trackers
     a_total = 0
@@ -503,6 +633,9 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
         a_stagger = 1 if (b_delta - a_delta) >= 5 else 0
         b_stagger = 1 if (a_delta - b_delta) >= 5 else 0
 
+        # Pick 3–4 foreground props for this round (names go into ledger['props_in_play'])
+        _choose_props_for_round(ledger, max_props=4)
+
         # Call OpenAI for this round (Narration Mode)
         msgs = _round_messages(a, b, arena, ledger, r, a_total, b_total, rounds)
         txt = _chat_call(client, msgs, max_tokens=650)
@@ -519,8 +652,9 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             a_total=a_total, b_total=b_total
         ))
 
-        # NOTE: We no longer parse structured 'updates' from the model.
-        # Continuity is enforced by showing the ledger each round and trusting the model to honor it.
+        # NOTE: We keep continuity simple by re-showing the ledger each round.
+        # If you ever want to auto-detect "broke glass" -> add hazard, you can
+        # add a naive keyword pass here and mutate ledger accordingly.
 
     # Winner & finisher
     if a_total > b_total:
@@ -561,6 +695,39 @@ def print_duel(dr: DuelResult) -> None:
 
 # ============================ Demo ============================
 
+def load_villain_from_json(path: str) -> Tuple[Villain, str]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"[DEBUG] File not found: {path}")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        raise ValueError(f"[DEBUG] JSON parse error for {path}: {e}")
+
+    # Required-ish fields
+    name  = data.get("name") or "[Unnamed]"
+    alias = data.get("alias") or None
+    powers = data.get("power") or data.get("powers") or ""
+    powers = [powers] if isinstance(powers, str) else (powers or [])
+    weaknesses = data.get("weakness") or data.get("weaknesses") or ""
+    weaknesses = [weaknesses] if isinstance(weaknesses, str) else (weaknesses or [])
+    catchphrase = data.get("catchphrase") or None
+    gender = data.get("gender") or ""
+    subj, obj, pos = _pronouns_from_gender(gender)
+
+    v = Villain(
+        name=name,
+        alias=alias,
+        powers=powers,
+        weaknesses=weaknesses,
+        catchphrase=catchphrase,
+        vibe=data.get("theme") or None,
+        subj=subj, obj=obj, pos=pos
+    )
+
+    # Return villain + lair string (so caller can decide arena)
+    return v, (data.get("lair") or "").strip()
+
 def default_villains() -> Tuple[Villain, Villain, Arena]:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--a", type=str, help="Path to villain A JSON")
@@ -581,7 +748,7 @@ def default_villains() -> Tuple[Villain, Villain, Arena]:
         arena = Arena(name=chosen_lair, tags=tags)
         return va, vb, arena
 
-    # ---------- DEMO FALLBACK (unchanged quality you loved) ----------
+    # ---------- DEMO FALLBACK ----------
     aria = Villain(
         name="Aria Greene",
         alias="Mimic Mistress",
