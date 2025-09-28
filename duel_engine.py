@@ -713,8 +713,6 @@ def print_duel(dr: DuelResult) -> None:
         print(f"Round {rr.r}")
         if rr.camera:
             print(rr.camera if rr.camera.startswith("CAMERA:") else f"CAMERA: {rr.camera}")
-        if rr.prop_events:
-            print(f"[Props] {rr.prop_events}")
         print(rr.a_text)
         print(rr.b_text)
         print(f"- Score Change: {_name(dr.a)} {rr.a_delta:+}, {_name(dr.b)} {rr.b_delta:+}")
@@ -770,9 +768,6 @@ def export_duel_to_docx(dr: DuelResult, out_dir: str = DUEL_DOCX_DIR) -> Optiona
         if rr.camera:
             cam_para = doc.add_paragraph(rr.camera)
             for run in cam_para.runs: run.italic = True
-        if rr.prop_events:
-            pp = doc.add_paragraph(f"[Props] {rr.prop_events}")
-            for run in pp.runs: run.italic = True
         pa = doc.add_paragraph()
         ra = pa.add_run(dr.a.label()); ra.bold = True
         try: ra.font.color.rgb = RGBColor(31,73,125)
