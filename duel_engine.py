@@ -1,19 +1,21 @@
 # duel_engine.py
 # ------------------------------------------------------------
 # Villain-vs-Villain Duel Engine — Cinematic Narration Mode
-# Next-wave upgrades:
-# • Violence/Gore dial (DUEL_VIOLENCE=0|1|2).
-# • Random per-round tactic bias (feint/trap/grapple/etc).
-# • Continuity auto-parser: injuries, knockdowns, props picked/destroyed, hazards.
-# • Positional disadvantage costs you (stagger penalty and may burn turn).
-# • Alias-first everywhere.
-# • Dynamic Prop Pack stays; 3–4 props foreground per round.
+# Upgrades included here:
+# • Violence hard-locked to max (2): extreme brutality & heavy swearing (no sexual content/hate slurs).
+# • OTF: Over-the-Top Finishers use surviving props/terrain + decisive, gory finale with catchphrase.
+# • CIC: Crippling Injury Continuity — auto-parsed injuries impose small scoring penalties & turn tax.
+# • Dirty tricks + power variety bias each round.
+# • Prop planning and per-round prop budget (3–4 foreground items).
+# • Alias-first everywhere; continuity respected.
+# • Auto-export each duel as a .docx to a local folder (see DUEL_DOCX_DIR).
 # ------------------------------------------------------------
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
-import os, sys, json, random, textwrap, time, re
+import os, sys, json, random, textwrap, time, re, datetime as _dt
+
 import argparse
 from dotenv import load_dotenv
 
@@ -24,11 +26,17 @@ ROUNDS = int(os.getenv("DUEL_ROUNDS", "10"))
 USE_API = os.getenv("DUEL_USE_OPENAI", "1").strip().lower() in ("1","true","on")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 TEMP = float(os.getenv("DUEL_TEMPERATURE", "0.85"))
-VIOLENCE_LEVEL = 2
+VIOLENCE_LEVEL = 2  # hard-locked to max gore
 WRAP = 92
 
 PRICE_IN_PER_1K = float(os.getenv("PRICE_IN_PER_1K", "0.003"))
 PRICE_OUT_PER_1K = float(os.getenv("PRICE_OUT_PER_1K", "0.006"))
+
+# DOCX export directory (Windows path by default, configurable via env)
+DUEL_DOCX_DIR = os.getenv(
+    "DUEL_DOCX_DIR",
+    r"C:\Users\VampyrLee\Desktop\AI_Villain\Duel Stories"
+)
 
 # --------------- Pronouns ---------------
 PRONOUN_MAP = {
@@ -137,8 +145,29 @@ def _trait_bonus(actor: Villain, opp: Villain, arena: Arena) -> Dict[str, int]:
         bonus["C"] += 1
     return bonus
 
+# --- CIC penalties based on injuries (lightweight, additive to stagger_penalty) ---
+def _injury_penalty(label: str, ledger: dict, tactic_hint: str) -> int:
+    injuries = (ledger.get("injuries", {}) or {}).get(label, []) or []
+    pen = 0
+    inj_txt = " ".join(injuries).lower()
+    # Breath/ribs -> penalty on explosive strikes/mobility
+    if "rib" in inj_txt or "breath" in inj_txt:
+        pen += 1
+    # Leg/limp (detected via hazards/openings wording as heuristic)
+    limp_flags = ledger.get("openings", {}).get(label, "") or ""
+    if any(k in limp_flags.lower() for k in ["stumble","off-balance","limp","knees","ankle","knee"]):
+        pen += 1
+    # Bleeding or deep lacerations -> cumulative fatigue
+    if "bleeding" in inj_txt or "laceration" in inj_txt:
+        pen += 1
+    # Head trauma -> add another if tactic is mobility/grapple (coordination)
+    if "concussion" in inj_txt and any(t in tactic_hint for t in ["mobility","grapple","feint"]):
+        pen += 1
+    return _bounded(pen, 0, 3)
+
 def _round_delta(attacker: Villain, defender: Villain, arena: Arena,
-                 rng: random.Random, stagger_penalty: int, combo: int) -> Tuple[int, Dict[str,int]]:
+                 rng: random.Random, stagger_penalty: int, combo: int,
+                 extra_penalty: int = 0) -> Tuple[int, Dict[str,int]]:
     base = dict(
         A=_score_component(rng, 1, 4),
         C=_score_component(rng, -1, 3),
@@ -151,10 +180,12 @@ def _round_delta(attacker: Villain, defender: Villain, arena: Arena,
     for k,v in t.items():
         base[k] = _bounded(base[k] + v, -3, 5)
     combo_bonus = min(combo, 3)
-    delta = base["A"] + base["C"] + base["S"] + base["R"] + base["E"] - base["D"] + combo_bonus - stagger_penalty
+    penalty = stagger_penalty + extra_penalty
+    delta = base["A"] + base["C"] + base["S"] + base["R"] + base["E"] - base["D"] + combo_bonus - penalty
     delta = _bounded(delta, -2, 12)
     base["combo"] = combo_bonus
     base["stagger"] = stagger_penalty
+    base["injury_penalty"] = extra_penalty
     base["delta"] = delta
     return delta, base
 
@@ -206,7 +237,7 @@ def _chat_call(client, messages, max_tokens=500) -> str:
 VIOLENCE_TEXT = {
     0: "Keep violence gritty but not graphic; no gore. Mild swearing allowed.",
     1: "R-rated brutality allowed: blood spray, fractures, broken teeth, choking, concussions. Strong swearing allowed. No sexual content, no hate slurs.",
-    2: "Extreme brutality allowed: shattered bones, pulped flesh, impalements, arterial spray. Heavy swearing ok. No sexual content and no hate slurs under any circumstance."
+    2: "Extreme brutality allowed: shattered bones, pulped flesh, impalements, arterial spray, dismemberment when plausible. Heavy swearing ok. No sexual content and no hate slurs under any circumstance."
 }[ _bounded(VIOLENCE_LEVEL,0,2) ]
 
 ROUND_SYSTEM = f"""You are narrating one round of a cinematic comic-book style duel.
@@ -242,9 +273,10 @@ SCENE_SYSTEM = """You are writing the cinematic scene-setter for a comic duel.
 """
 
 FINISHER_SYSTEM = f"""Narrate the finishing move in 3–5 sentences, present tense.
-- Winner unleashes a decisive, brutal action (allowed level: {VIOLENCE_TEXT}).
-- Powers should peak, optionally combining with one surviving prop/terrain beat.
-- Reflect continuity: injuries, hazards, props.
+- Winner unleashes a decisive, over-the-top brutal action (allowed level: {VIOLENCE_TEXT}).
+- Peak the winner's power; optionally combine it with 1–2 surviving props or a terrain beat for amplification.
+- Respect continuity: injuries, hazards, and any prop already in-hand should shape the method of destruction.
+- The loser ends in a clear, final state (KO, maimed beyond response, or explicit kill per comic-book tone).
 - End with the winner's catchphrase in *italics*.
 - No sexual content; no hate slurs.
 """
@@ -271,6 +303,10 @@ def _round_user_prompt(a, b, arena, ledger, round_idx, tactic_hint_a:str, tactic
     openings_b = (ledger.get("openings", {}).get(b_label) or "none").strip()
     pos_disadv = ledger.get("positional_disadvantage", "") or "none"
 
+    # Crippling notes for model awareness
+    crip_a = " | Crippling effects: " + (", ".join(inj_a) if inj_a else "none")
+    crip_b = " | Crippling effects: " + (", ".join(inj_b) if inj_b else "none")
+
     continuity_text = "\n".join([
         f"- Injuries — {a_label}: {', '.join(inj_a) if inj_a else 'none recorded'}",
         f"- Injuries — {b_label}: {', '.join(inj_b) if inj_b else 'none recorded'}",
@@ -287,9 +323,9 @@ def _round_user_prompt(a, b, arena, ledger, round_idx, tactic_hint_a:str, tactic
     return (
         f"Round {round_idx}\n"
         f"ARENA: {arena.name} | Signature: {sig_line}\n\n"
-        f"VILLAIN A (first block): {a_label} | pronouns {a.subj}/{a.obj}/{a.pos} | powers: {', '.join(a.powers)}\n"
+        f"VILLAIN A (first block): {a_label} | pronouns {a.subj}/{a.obj}/{a.pos} | powers: {', '.join(a.powers)}{crip_a}\n"
         f"Tactic bias for {a_label}: {tactic_hint_a}\n\n"
-        f"VILLAIN B (second block): {b_label} | pronouns {b.subj}/{b.obj}/{b.pos} | powers: {', '.join(b.powers)}\n"
+        f"VILLAIN B (second block): {b_label} | pronouns {b.subj}/{b.obj}/{b.pos} | powers: {', '.join(b.powers)}{crip_b}\n"
         f"Tactic bias for {b_label}: {tactic_hint_b}\n\n"
         f"PROPS IN PLAY (3–4 max):\n" + (("- " + "\n- ".join(props)) if props else "none") + "\n\n" +
         "CONTINUITY (persist & escalate):\n" + continuity_text + "\n\n" +
@@ -440,7 +476,7 @@ def _update_continuity_from_panels(a_text: str, b_text: str, ledger: dict, a_lab
                 break
 
         # openings
-        if any(w in lt for w in ["stagger","reeling","dazed","winded","off-balance","opens","opening"]):
+        if any(w in lt for w in ["stagger","reeling","dazed","winded","off-balance","opens","opening","limp","hobble","wobble"]):
             openings[label] = "off-balance; vulnerable next beat"
 
         # prop pick-ups
@@ -533,16 +569,27 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             if b.label() in ledger["positional_disadvantage"]:
                 b_stagger = max(b_stagger,1)
 
+        # Foreground props for this round
+        _choose_props_for_round(ledger, max_props=4)
+
+        # Random tactic bias per villain
+        tactic_a = random.choice(TACTICS)
+        tactic_b = random.choice(TACTICS)
+
+        # CIC: compute extra injury penalties
+        pen_a = _injury_penalty(a.label(), ledger, tactic_a)
+        pen_b = _injury_penalty(b.label(), ledger, tactic_b)
+
         # Initiative
         a_first = (a_total >= b_total) if r > 2 else rng.random() < 0.5
 
-        # Deltas
+        # Deltas (include CIC penalty)
         if a_first:
-            a_delta,_ = _round_delta(a,b,arena,rng,a_stagger,a_combo)
-            b_delta,_ = _round_delta(b,a,arena,rng,b_stagger,b_combo)
+            a_delta,_ = _round_delta(a,b,arena,rng,a_stagger,a_combo, extra_penalty=pen_a)
+            b_delta,_ = _round_delta(b,a,arena,rng,b_stagger,b_combo, extra_penalty=pen_b)
         else:
-            b_delta,_ = _round_delta(b,a,arena,rng,b_stagger,b_combo)
-            a_delta,_ = _round_delta(a,b,arena,rng,a_stagger,a_combo)
+            b_delta,_ = _round_delta(b,a,arena,rng,b_stagger,b_combo, extra_penalty=pen_b)
+            a_delta,_ = _round_delta(a,b,arena,rng,a_stagger,a_combo, extra_penalty=pen_a)
 
         # Totals & streaks
         a_total += a_delta; b_total += b_delta
@@ -550,13 +597,6 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
         b_combo = (b_combo+1) if b_delta>0 else 0
         a_stagger = 1 if (b_delta - a_delta) >= 5 else 0
         b_stagger = 1 if (a_delta - b_delta) >= 5 else 0
-
-        # Foreground props
-        _choose_props_for_round(ledger, max_props=4)
-
-        # Random tactic bias per villain
-        tactic_a = random.choice(TACTICS)
-        tactic_b = random.choice(TACTICS)
 
         # Round call
         msgs = _round_messages(a,b,arena,ledger,r,a_total,b_total,rounds,tactic_a,tactic_b)
@@ -606,6 +646,85 @@ def print_duel(dr: DuelResult) -> None:
     print(f"Winner: {dr.winner_label}")
     print("Finisher:")
     print(dr.finisher)
+
+# --------------- DOCX Export ---------------
+def export_duel_to_docx(dr: DuelResult, out_dir: str = DUEL_DOCX_DIR) -> Optional[str]:
+    try:
+        from docx import Document
+        from docx.shared import Pt, Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except Exception as e:
+        print(f"[WARN] python-docx not installed; skip .docx export. ({e})")
+        return None
+
+    # Resolve and create directory
+    try:
+        from pathlib import Path
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"[WARN] Could not create output directory: {out_dir} ({e})")
+        return None
+
+    # Build document
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Inches(0.8)
+        section.bottom_margin = Inches(0.8)
+        section.left_margin = Inches(0.8)
+        section.right_margin = Inches(0.8)
+
+    # Title
+    p = doc.add_paragraph()
+    r = p.add_run(f"{dr.a.label()} vs {dr.b.label()} — {dr.arena.name}")
+    r.bold = True; r.font.size = Pt(22)
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_paragraph()
+
+    # Scene Intro
+    h = doc.add_paragraph(); hr = h.add_run("Scene Intro"); hr.bold = True; hr.font.size = Pt(14)
+    doc.add_paragraph(dr.scene_setter); doc.add_paragraph()
+
+    # Rounds
+    for rr in dr.rounds:
+        doc.add_paragraph().add_run("").add_break()
+        h = doc.add_paragraph(); t = h.add_run(f"Round {rr.r}"); t.bold=True; t.font.size = Pt(14)
+        if rr.camera:
+            pcam = doc.add_paragraph(); rcam = pcam.add_run(rr.camera); rcam.italic = True
+        # A block
+        pa = doc.add_paragraph(); ra = pa.add_run(dr.a.label()); ra.bold = True
+        doc.add_paragraph(rr.a_text)
+        # B block
+        pb = doc.add_paragraph(); rb = pb.add_run(dr.b.label()); rb.bold = True
+        doc.add_paragraph(rr.b_text)
+        # Scores
+        sc = doc.add_paragraph(); r1 = sc.add_run("- Score Change: "); r1.bold=True
+        sc.add_run(f"{_name(dr.a)} {rr.a_delta:+}, {_name(dr.b)} {rr.b_delta:+}")
+        st = doc.add_paragraph(); r2 = st.add_run("- Totals: "); r2.bold=True
+        st.add_run(f"{_name(dr.a)} {rr.a_total} — {_name(dr.b)} {rr.b_total}")
+
+    # Winner / Finisher
+    doc.add_paragraph().add_run("").add_break()
+    hw = doc.add_paragraph(); rw = hw.add_run("Winner"); rw.bold = True; rw.font.size = Pt(14)
+    w = doc.add_paragraph(); wr = w.add_run(dr.winner_label); wr.bold = True
+    doc.add_paragraph().add_run("").add_break()
+    hf = doc.add_paragraph(); rf = hf.add_run("Finisher"); rf.bold = True; rf.font.size = Pt(14)
+    doc.add_paragraph(dr.finisher)
+
+    # Filename
+    ts = _dt.datetime.now().strftime("%Y-%m-%d_%H%M")
+    safe_arena = re.sub(r'[^A-Za-z0-9 _-]+', '', dr.arena.name).strip().replace(" ", "_")
+    safe_a = re.sub(r'[^A-Za-z0-9 _-]+', '', dr.a.label()).strip().replace(" ", "_")
+    safe_b = re.sub(r'[^A-Za-z0-9 _-]+', '', dr.b.label()).strip().replace(" ", "_")
+    filename = f"{ts}_{safe_a}_vs_{safe_b}_{safe_arena}.docx"
+
+    out_path = os.path.join(out_dir, filename)
+    try:
+        doc.save(out_path)
+        print(f"[OK] Saved duel story: {out_path}")
+        return out_path
+    except Exception as e:
+        print(f"[WARN] Failed to save .docx: {e}")
+        return None
 
 # --------------- Loading ---------------
 def load_villain_from_json(path: str) -> Tuple[Villain, str]:
@@ -660,6 +779,8 @@ def main():
     a, b, arena = default_villains()
     dr = run_duel(a,b,arena, rounds=ROUNDS)
     print_duel(dr)
+    # Auto-export to DOCX after printing
+    export_duel_to_docx(dr, DUEL_DOCX_DIR)
 
 if __name__ == "__main__":
     main()
