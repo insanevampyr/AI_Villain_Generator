@@ -711,7 +711,6 @@ def print_duel(dr: DuelResult) -> None:
     print(_wrap(dr.scene_setter)); print()
     for rr in dr.rounds:
         print(f"Round {rr.r}")
-        if rr.hud: print(rr.hud)
         if rr.camera:
             print(rr.camera if rr.camera.startswith("CAMERA:") else f"CAMERA: {rr.camera}")
         if rr.prop_events:
@@ -768,9 +767,6 @@ def export_duel_to_docx(dr: DuelResult, out_dir: str = DUEL_DOCX_DIR) -> Optiona
     for rr in dr.rounds:
         doc.add_paragraph()
         doc.add_heading(f"Round {rr.r}", level=3)
-        if rr.hud:
-            para = doc.add_paragraph(rr.hud)
-            for run in para.runs: run.italic = True
         if rr.camera:
             cam_para = doc.add_paragraph(rr.camera)
             for run in cam_para.runs: run.italic = True
