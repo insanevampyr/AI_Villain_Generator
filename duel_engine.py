@@ -24,7 +24,7 @@ ROUNDS = int(os.getenv("DUEL_ROUNDS", "10"))
 USE_API = os.getenv("DUEL_USE_OPENAI", "1").strip().lower() in ("1","true","on")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
 TEMP = float(os.getenv("DUEL_TEMPERATURE", "0.85"))
-VIOLENCE_LEVEL = int(os.getenv("DUEL_VIOLENCE", "1"))  # 0,1,2
+VIOLENCE_LEVEL = 2
 WRAP = 92
 
 PRICE_IN_PER_1K = float(os.getenv("PRICE_IN_PER_1K", "0.003"))
