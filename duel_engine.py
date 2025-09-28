@@ -219,18 +219,19 @@ SCENE_SYSTEM = (
 # === Narration Mode round rules with labeled blocks ===
 ROUND_SYSTEM = """You are narrating one round of a cinematic comic-book style duel.
 Rules:
-- Style: present tense, 2–3 vivid sentences per villain.
-- Win condition awareness: after Round 10 the fighter with the higher momentum total wins. Let each villain's tactics reflect this (press for big swings when behind; manage risk and deny when ahead).
+- Style: present tense, 2–3 vivid sentences per villain. Swearing permitted. Lean into grit and gore (fractures, lacerations, blood spray), but no sexual content and no hate slurs.
+- Villains are ruthless and play by no rules: cheap shots, feints, traps, improvised weapons, and environment abuse are encouraged.
+- Powers must be used in varied, inventive ways: offense, defense, mobility, area denial, grapples, counters, feints, amplifiers (e.g., bouncing shots off metal), and combos with props or terrain.
+- Win condition awareness: after Round 10 the fighter with the higher momentum total wins. Let tactics reflect this (press big swings when behind; deny/counter when ahead).
 - Each villain must ATTACK or COUNTER the other. It is a fight, not posing.
-- Include CONSEQUENCES: injuries, positioning, props, or openings caused.
+- Include CONSEQUENCES: injuries, positioning, props, or openings caused. Injuries should leave marks (cuts, broken ribs, concussions, missing breath).
 - Villain THOUGHTS may appear in *italics* only if they add strategy, pain, or resolve.
 - Use CAMERA cues sparingly; at most one line formatted as: CAMERA: <description>.
 
 Continuity:
 - You are given a ledger of existing injuries, hazards, and props. These persist across rounds.
-- Reference or escalate them naturally (e.g., if “acid burns on face” exist, vision may blur).
-- Do not drop injuries unless explicitly healed/regenerated.
-- Healing only if consistent with powers. If done, say so.
+- Reference or escalate them naturally (e.g., if “acid burns on face” exist, vision may blur; if ribs are cracked, breathing is painful).
+- Do not drop injuries unless explicitly healed/regenerated; only heal if consistent with powers.
 - Props are PHYSICAL: if a prop is used, show it being picked up, dragged, kicked, thrown, or ripped free. Nothing “appears in a hand.”
 - Positional disadvantage matters: if a fighter is prone, flanked, or struck from behind, they must visibly RECOVER before acting; severe disadvantage can cost that fighter their turn this round.
 - Per-round prop budget: 3–4 foreground items max. Use at most one prop per fighter unless a carry-over item is already in-hand.
@@ -240,24 +241,24 @@ Momentum:
 - You are given momentum deltas; scale severity accordingly:
   • +2..+5 = light graze or small positional win.
   • +6..+9 = clear damaging hit, stagger, blood drawn.
-  • +10..+12 = dramatic injury or environment/prop payoff.
+  • +10..+12 = brutal injury or big environment/prop payoff.
 
 OUTPUT FORMAT (no JSON):
 Write exactly two blocks labeled:
-A: <2–3 sentences for the first villain named in input>
-B: <2–3 sentences for the second villain named in input>
+A: <2–3 present-tense sentences for the first villain named in input>
+B: <2–3 present-tense sentences for the second villain named in input>
 Optionally add one CAMERA: line on its own.
 Do not add any extra text before or after these blocks.
 """
 
 FINISHER_SYSTEM = """You are narrating the finishing move of a cinematic comic duel.
 Rules:
-- Winner executes a decisive, dramatic attack in 3–5 sentences.
+- Winner executes a decisive, dramatic attack in 3–5 sentences. Brutal, gory, and final is OK (bone breaks, blood spray), but no sexual content and no hate slurs.
 - Style: present tense, vivid, comic-panel description.
+- Powers should be leveraged in a peak, inventive way (combo with terrain or a surviving prop is welcome).
 - Integrate continuity: reference key injuries, props, or hazards that built up during the fight.
 - The loser’s state reflects accumulated damage (weakened, scarred, staggered).
 - End with the winner delivering their CATCHPHRASE in *italics*.
-- Keep tone brutal but cinematic (R-rated violence is fine, no sexual content).
 - Ban odd phrasing (no “pinning angles,” no detached abstractions).
 - Show finality: one fighter is clearly downed.
 - The winning blow should be primarily powered by the winner's abilities; a surviving prop may be combined or used alone if it heightens the moment.
