@@ -13,6 +13,15 @@ import io, zipfile
 from villain_utils import create_villain_card, build_villain_zip_bytes
 st.caption("build: AI Villain Generator V1")
 
+from config import (
+    ENABLE_IMAGE_PROMPT_GUARDRAIL,
+    IMAGE_PROMPT_GUARDRAIL_MODEL,
+    FORCE_AMERICAN_CONTEXT,
+    AMERICAN_CONTEXT_NOTES,
+    NO_TEXT_IMAGE_RULES,
+)
+from villain_utils import build_visual_only_image_prompt
+
 
 
 from config import (
@@ -769,10 +778,39 @@ if st.session_state.villain:
             )
         else:
             with st.spinner("Summoning villain through the multiverse..."):
+                # Build your usual base prompt
                 style = get_style_prompt(villain.get("theme"))
                 base_prompt = villain.get("origin", "")
-                image_prompt = f"{base_prompt}\n\nStyle: {style}".strip()
+                raw_image_prompt = f"{base_prompt}\n\nStyle: {style}".strip()
+
+                # --- CHEAP GUARDRAIL: rewrite the prompt into visual-only + US vibe, no text in image ---
+                # (Creates a tiny OpenAI client just for this short rewrite step.)
+                try:
+                    from openai import OpenAI
+                    guard_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+                except Exception:
+                    guard_client = None
+
+                # Use the helper you already imported at the top
+                try:
+                    if ENABLE_IMAGE_PROMPT_GUARDRAIL and guard_client is not None:
+                        image_prompt = build_visual_only_image_prompt(
+                            openai_client=guard_client,
+                            raw_prompt=raw_image_prompt,
+                            model_name=IMAGE_PROMPT_GUARDRAIL_MODEL,
+                            force_american_context=FORCE_AMERICAN_CONTEXT,
+                            american_context_notes=AMERICAN_CONTEXT_NOTES,
+                            no_text_rules=NO_TEXT_IMAGE_RULES
+                        )
+                    else:
+                        # Fallback: just append the “no text” rule (still one image, no retries)
+                        image_prompt = f"{raw_image_prompt}  {NO_TEXT_IMAGE_RULES}"
+                except Exception:
+                    image_prompt = f"{raw_image_prompt}  {NO_TEXT_IMAGE_RULES}"
+
+                # Generate the portrait with the cleaned prompt (ONE image = ONE charge)
                 ai_path = generate_ai_portrait(villain | {"image_prompt": image_prompt})
+
                 if ai_path and os.path.exists(ai_path):
                     st.session_state.ai_image = ai_path
                     st.session_state.villain_image = ai_path
@@ -782,6 +820,7 @@ if st.session_state.villain:
                 else:
                     st.error("Something went wrong during AI generation.")
                     st.rerun()
+
 
     # Secondary, optional: upload own image (ALWAYS visible in detail view)
     st.caption("Or upload your own image instead:")
