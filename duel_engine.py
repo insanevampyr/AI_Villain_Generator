@@ -8,7 +8,13 @@
 # • Dirty tricks + power variety bias each round.
 # • Prop planning and per-round prop budget (3–4 foreground items).
 # • Alias-first everywhere; continuity respected.
+# • Injury HUD & CIC impact lines (console + DOCX).
+# • Prop lifecycle echoes (picked up/broken) (console + DOCX).
+# • Soft continuity scrub (explicit recoveries when previously prone).
+# • American locale bias in narration prompts.
+# • Scene variety bias between runs (avoid repeating last arena tags).
 # • Auto-export each duel as a .docx to a local folder (see DUEL_DOCX_DIR).
+# • Exact OpenAI token cost bill printed at end.
 # ------------------------------------------------------------
 
 from __future__ import annotations
@@ -37,6 +43,9 @@ DUEL_DOCX_DIR = os.getenv(
     "DUEL_DOCX_DIR",
     r"C:\Users\VampyrLee\Desktop\AI_Villain\Duel Stories"
 )
+
+# File to store last arena tags for variety bias
+ARENA_VARIETY_FILE = os.getenv("ARENA_VARIETY_FILE", ".last_arena_tags.json")
 
 # --------------- Pronouns ---------------
 PRONOUN_MAP = {
@@ -102,6 +111,8 @@ class RoundResult:
     b_delta: int
     a_total: int
     b_total: int
+    hud: Optional[str] = None       # Injury HUD + props + CIC impact
+    prop_events: Optional[str] = None  # explicit "picked up/broke" echoes for this round
 
 @dataclass
 class DuelResult:
@@ -114,6 +125,7 @@ class DuelResult:
     b_total: int
     winner_label: str
     finisher: str
+    ledger: dict
 
 # --------------- Small utils ---------------
 def _wrap(s: str) -> str:
@@ -150,17 +162,13 @@ def _injury_penalty(label: str, ledger: dict, tactic_hint: str) -> int:
     injuries = (ledger.get("injuries", {}) or {}).get(label, []) or []
     pen = 0
     inj_txt = " ".join(injuries).lower()
-    # Breath/ribs -> penalty on explosive strikes/mobility
     if "rib" in inj_txt or "breath" in inj_txt:
         pen += 1
-    # Leg/limp (detected via hazards/openings wording as heuristic)
     limp_flags = ledger.get("openings", {}).get(label, "") or ""
-    if any(k in limp_flags.lower() for k in ["stumble","off-balance","limp","knees","ankle","knee"]):
+    if any(k in limp_flags.lower() for k in ["stumble","off-balance","limp","knees","ankle","knee","hobble"]):
         pen += 1
-    # Bleeding or deep lacerations -> cumulative fatigue
     if "bleeding" in inj_txt or "laceration" in inj_txt:
         pen += 1
-    # Head trauma -> add another if tactic is mobility/grapple (coordination)
     if "concussion" in inj_txt and any(t in tactic_hint for t in ["mobility","grapple","feint"]):
         pen += 1
     return _bounded(pen, 0, 3)
@@ -240,6 +248,8 @@ VIOLENCE_TEXT = {
     2: "Extreme brutality allowed: shattered bones, pulped flesh, impalements, arterial spray, dismemberment when plausible. Heavy swearing ok. No sexual content and no hate slurs under any circumstance."
 }[ _bounded(VIOLENCE_LEVEL,0,2) ]
 
+AM_LOCALE = "Use American English and US visual references (signage, fittings, vehicles). Prefer imperial measurements when relevant. Avoid non-US locale cues unless explicitly part of the character."
+
 ROUND_SYSTEM = f"""You are narrating one round of a cinematic comic-book style duel.
 Rules:
 - Present tense, 2–3 vivid sentences per villain. {VIOLENCE_TEXT}
@@ -255,6 +265,7 @@ Continuity:
 - Positional disadvantage matters: prone/flanked/struck-from-behind requires visible recovery and can cost that fighter their turn.
 - Per-round prop budget: 3–4 foreground items max; at most one prop per fighter unless already in-hand.
 - Use only the props listed; do not invent new items.
+{AM_LOCALE}
 Momentum mapping:
   • +2..+5 = graze/small positional win.
   • +6..+9 = clear damaging hit; blood drawn; stagger.
@@ -265,11 +276,12 @@ B: <2–3 sentences for the second villain named in input>
 Optional one line: CAMERA: <short>.
 """
 
-SCENE_SYSTEM = """You are writing the cinematic scene-setter for a comic duel.
+SCENE_SYSTEM = f"""You are writing the cinematic scene-setter for a comic duel.
 - 3–5 sentences, present tense.
 - Describe atmosphere, lighting, hazards, and plausible props/hazards.
 - Optional single CAMERA line.
 - No villain actions or catchphrases yet.
+{AM_LOCALE}
 """
 
 FINISHER_SYSTEM = f"""Narrate the finishing move in 3–5 sentences, present tense.
@@ -279,7 +291,24 @@ FINISHER_SYSTEM = f"""Narrate the finishing move in 3–5 sentences, present ten
 - The loser ends in a clear, final state (KO, maimed beyond response, or explicit kill per comic-book tone).
 - End with the winner's catchphrase in *italics*.
 - No sexual content; no hate slurs.
+{AM_LOCALE}
 """
+
+# --------------- Variety bias helpers ---------------
+def _load_last_arena_tags() -> List[str]:
+    try:
+        with open(ARENA_VARIETY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("last_tags", [])
+    except Exception:
+        return []
+
+def _save_last_arena_tags(tags: List[str]) -> None:
+    try:
+        with open(ARENA_VARIETY_FILE, "w", encoding="utf-8") as f:
+            json.dump({"last_tags": tags}, f)
+    except Exception:
+        pass
 
 # --------------- Message builders ---------------
 def _scene_setter_messages(a, b, arena):
@@ -303,7 +332,6 @@ def _round_user_prompt(a, b, arena, ledger, round_idx, tactic_hint_a:str, tactic
     openings_b = (ledger.get("openings", {}).get(b_label) or "none").strip()
     pos_disadv = ledger.get("positional_disadvantage", "") or "none"
 
-    # Crippling notes for model awareness
     crip_a = " | Crippling effects: " + (", ".join(inj_a) if inj_a else "none")
     crip_b = " | Crippling effects: " + (", ".join(inj_b) if inj_b else "none")
 
@@ -359,8 +387,10 @@ def _finisher_messages(winner, loser, arena, ledger):
 # --------------- Prop planning ---------------
 def _prop_pack_messages(a, b, arena):
     sys = "You are a fight-scene planner. Return a compact plan; no narration."
+    last_tags = _load_last_arena_tags()
+    variety_hint = f"\nAvoid repeating these recent arena tags if possible; prefer contrast where plausible: {', '.join(last_tags)}" if last_tags else ""
     user = f"""Arena (Lair): {arena.name}
-Tags: {', '.join(arena.tags) if arena.tags else '—'}
+Tags: {', '.join(arena.tags) if arena.tags else '—'}{variety_hint}
 
 Villain A: {a.label()} — powers: {', '.join(a.powers) or '—'}
 Villain B: {b.label()} — powers: {', '.join(b.powers) or '—'}
@@ -371,7 +401,8 @@ Return:
 3) ENV_EVENTS (2–3 optional).
 Constraints:
 - Items must physically belong here; picked up/dragged/thrown if used.
-- Keep it short and practical."""
+- Keep it short and practical.
+- Use American references (US-style fixtures, signage, units)."""
     return [{"role":"system","content":sys}, {"role":"user","content":user}]
 
 def _choose_props_for_round(ledger: dict, max_props: int = 4) -> list:
@@ -444,13 +475,13 @@ HAZARD_SPAWNERS = [
     (r'\bacid|toxin|chemical\b', 'corrosive puddle'),
 ]
 
-def _append_unique(lst: List[str], item: str, max_len: int = 10):
+def _append_unique(lst: List[str], item: str, max_len: int = 12):
     if item and item not in lst:
         lst.append(item)
         if len(lst) > max_len:
             lst.pop(0)
 
-def _update_continuity_from_panels(a_text: str, b_text: str, ledger: dict, a_label: str, b_label: str):
+def _update_continuity_from_panels(a_text: str, b_text: str, ledger: dict, a_label: str, b_label: str, r_idx:int):
     text_map = [(a_label, a_text), (b_label, b_text)]
     injuries = ledger.setdefault("injuries", {a_label:[], b_label:[]})
     hazards = ledger.setdefault("hazards", [])
@@ -459,48 +490,66 @@ def _update_continuity_from_panels(a_text: str, b_text: str, ledger: dict, a_lab
     in_hand = ledger.setdefault("in_hand", {a_label:None, b_label:None})
     prop_uses = ledger.setdefault("prop_uses", {})
     openings = ledger.setdefault("openings", {a_label:"", b_label:""})
+    round_events = ledger.setdefault("round_events", {})  # r_idx -> list of strings
+    pos_history = ledger.setdefault("pos_history", {})    # r_idx -> label prone
+
+    events = []
 
     # Injuries + knockdowns
     for label, txt in text_map:
         lt = txt.lower()
 
-        # injuries
         for pat, tag in INJURY_PATTERNS:
             if re.search(pat, lt):
-                _append_unique(injuries.setdefault(label, []), tag)
+                if tag not in injuries.setdefault(label, []):
+                    injuries[label].append(tag)
+                    events.append(f"{label}: injury noted — {tag}")
 
-        # knockdown -> positional disadvantage next round
         for pat in KNOCKDOWN_PATTERNS:
             if re.search(pat, lt):
                 ledger["positional_disadvantage"] = f"{label} is prone and must recover before acting."
+                pos_history[r_idx] = label
+                events.append(f"{label}: knocked prone")
                 break
 
-        # openings
         if any(w in lt for w in ["stagger","reeling","dazed","winded","off-balance","opens","opening","limp","hobble","wobble"]):
             openings[label] = "off-balance; vulnerable next beat"
 
-        # prop pick-ups
         pick = re.search(PROP_PICK_PAT, lt)
         if pick:
-            # try to match to props_in_play name loosely
             cand = pick.group('prop').strip().lower()
             match = next((p for p in props_in_play if cand in p.lower()), None)
             if match:
                 in_hand[label] = match
                 prop_uses[match] = prop_uses.get(match,0) + 1
+                events.append(f"{label} picks up: {match}")
 
-        # prop breaks
         br = re.search(PROP_BREAK_PAT, lt)
         if br:
             cand = br.group('prop').strip().lower()
             match = next((p for p in props_in_play if cand in p.lower()), None)
             if match and match not in destroyed:
                 destroyed.append(match)
+                events.append(f"Prop destroyed: {match}")
 
-        # hazards spawned
         for pat, hz in HAZARD_SPAWNERS:
             if re.search(pat, lt):
-                _append_unique(hazards, hz, max_len=8)
+                if hz not in hazards:
+                    hazards.append(hz)
+                    events.append(f"Hazard added: {hz}")
+
+    if events:
+        round_events[r_idx] = round_events.get(r_idx, []) + events
+
+# --------------- HUD builders ---------------
+def _injury_hud_line(ledger: dict, a_label: str, b_label: str) -> str:
+    inj = ledger.get("injuries", {})
+    ia = ", ".join(inj.get(a_label, []) or ["—"])
+    ib = ", ".join(inj.get(b_label, []) or ["—"])
+    pos = ledger.get("positional_disadvantage") or "—"
+    props = ledger.get("props_in_play", [])
+    prop_txt = ", ".join(props) if props else "—"
+    return f"Status: {a_label} [{ia}] | {b_label} [{ib}] • Props in play: {prop_txt} • Disadvantage: {pos}"
 
 # --------------- Engine ---------------
 def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> DuelResult:
@@ -520,18 +569,18 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
         "in_hand": {a.label(): None, b.label(): None},
         "prop_uses": {},
         "prop_cooldowns": {},
+        "penalties": {},   # r -> (pen_a, pen_b)
+        "round_events": {},# r -> [events]
+        "pos_history": {}, # r -> label prone
     }
 
-    # Scene
     scene = _chat_call(client, _scene_setter_messages(a,b,arena), max_tokens=450)
 
-    # Prop Pack
-    prop_text = _chat_call(client, _prop_pack_messages(a, b, arena), max_tokens=520)
+    prop_text = _chat_call(client, _prop_pack_messages(a, b, arena), max_tokens=560)
     ledger["PROP_PACK_RAW"] = prop_text
     ledger["ARENA_SIGNATURE"] = []
     ledger["PROP_CATALOG"] = []
     ledger["ENV_EVENTS"] = []
-    # Naive parse
     lines = [ln.strip("-• ").strip() for ln in prop_text.splitlines() if ln.strip()]
     bucket = None
     for ln in lines:
@@ -552,38 +601,39 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             ledger["PROP_CATALOG"].append(item)
         elif bucket=="ev": ledger["ENV_EVENTS"].append(ln)
 
-    # Fight state
+    try:
+        _save_last_arena_tags(list(ledger.get("ARENA_SIGNATURE") or []) + list(arena.tags or []))
+    except Exception:
+        pass
+
     a_total=b_total=0
     a_combo=b_combo=0
     a_stagger=b_stagger=0
     rng = random.Random()
     panels: List[RoundResult] = []
 
-    TACTICS = ["feint & counter", "trap setup", "grapple/clinche", "mobility burst", "area denial", "terrain combo", "improvised weapon"]
+    TACTICS = ["feint & counter", "trap setup", "grapple/clinch", "mobility burst", "area denial", "terrain combo", "improvised weapon"]
 
     for r in range(1, rounds+1):
-        # Position disadvantage tax
+        ledger["current_round"] = r
+
         if ledger.get("positional_disadvantage"):
             if a.label() in ledger["positional_disadvantage"]:
                 a_stagger = max(a_stagger,1)
             if b.label() in ledger["positional_disadvantage"]:
                 b_stagger = max(b_stagger,1)
 
-        # Foreground props for this round
         _choose_props_for_round(ledger, max_props=4)
 
-        # Random tactic bias per villain
         tactic_a = random.choice(TACTICS)
         tactic_b = random.choice(TACTICS)
 
-        # CIC: compute extra injury penalties
         pen_a = _injury_penalty(a.label(), ledger, tactic_a)
         pen_b = _injury_penalty(b.label(), ledger, tactic_b)
+        ledger["penalties"][r] = (pen_a, pen_b)
 
-        # Initiative
         a_first = (a_total >= b_total) if r > 2 else rng.random() < 0.5
 
-        # Deltas (include CIC penalty)
         if a_first:
             a_delta,_ = _round_delta(a,b,arena,rng,a_stagger,a_combo, extra_penalty=pen_a)
             b_delta,_ = _round_delta(b,a,arena,rng,b_stagger,b_combo, extra_penalty=pen_b)
@@ -591,20 +641,30 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             b_delta,_ = _round_delta(b,a,arena,rng,b_stagger,b_combo, extra_penalty=pen_b)
             a_delta,_ = _round_delta(a,b,arena,rng,a_stagger,a_combo, extra_penalty=pen_a)
 
-        # Totals & streaks
         a_total += a_delta; b_total += b_delta
         a_combo = (a_combo+1) if a_delta>0 else 0
         b_combo = (b_combo+1) if b_delta>0 else 0
         a_stagger = 1 if (b_delta - a_delta) >= 5 else 0
         b_stagger = 1 if (a_delta - b_delta) >= 5 else 0
 
-        # Round call
         msgs = _round_messages(a,b,arena,ledger,r,a_total,b_total,rounds,tactic_a,tactic_b)
         txt = _chat_call(client, msgs, max_tokens=680)
         a_panel, b_panel, camera = _parse_round_text(txt)
 
-        # Update continuity from narration
-        _update_continuity_from_panels(a_panel, b_panel, ledger, a.label(), b.label())
+        _update_continuity_from_panels(a_panel, b_panel, ledger, a.label(), b.label(), r)
+
+        last_prone = ledger.get("pos_history", {}).get(r-1)
+        if last_prone:
+            if last_prone == a.label() and not re.search(r'\b(gets? up|scrambl|push(es)? up|clambers|rises)\b', a_panel, flags=re.IGNORECASE):
+                a_panel = f"{a.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + a_panel
+            if last_prone == b.label() and not re.search(r'\b(gets? up|scrambl|push(es)? up|clambers|rises)\b', b_panel, flags=re.IGNORECASE):
+                b_panel = f"{b.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + b_panel
+
+        hud = _injury_hud_line(ledger, a.label(), b.label())
+        penA, penB = ledger["penalties"].get(r, (0,0))
+        hud += f" • CIC impact: {a.label()} -{penA}, {b.label()} -{penB}"
+        events = ledger.get("round_events", {}).get(r, [])
+        ev_line = "; ".join(events) if events else ""
 
         panels.append(RoundResult(
             r=r,
@@ -612,32 +672,50 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             b_text=_wrap(b_panel),
             camera=camera,
             a_delta=a_delta, b_delta=b_delta,
-            a_total=a_total, b_total=b_total
+            a_total=a_total, b_total=b_total,
+            hud=_wrap(hud),
+            prop_events=_wrap(ev_line) if ev_line else None
         ))
 
-        # Cooldown positional disadvantage after one round (fighter recovered)
         ledger["positional_disadvantage"] = ""
 
-        # Simple prop cooldown tick
         for k in list(ledger.get("prop_cooldowns", {}).keys()):
             ledger["prop_cooldowns"][k] = max(0, ledger["prop_cooldowns"][k]-1)
 
-    # Winner & finisher
     winner, loser = (a,b) if a_total>b_total else (b,a) if b_total>a_total else ((a,b) if panels[-1].a_delta>=panels[-1].b_delta else (b,a))
     finisher = _chat_call(client, _finisher_messages(winner, loser, arena, ledger), max_tokens=420)
 
     return DuelResult(a=a,b=b,arena=arena,scene_setter=scene,rounds=panels,
                       a_total=a_total,b_total=b_total,winner_label=winner.label(),
-                      finisher=_wrap(finisher))
+                      finisher=_wrap(finisher), ledger=ledger)
 
 # --------------- Output ---------------
+COST_LOG = COST_LOG
+def _print_cost_bill():
+    ti = COST_LOG["total_input_tokens"]
+    to = COST_LOG["total_output_tokens"]
+    cost_in  = (ti/1000.0)*PRICE_IN_PER_1K
+    cost_out = (to/1000.0)*PRICE_OUT_PER_1K
+    total = cost_in + cost_out
+    print("\n=== OpenAI Cost Bill ===")
+    print(f"Model: {OPENAI_MODEL}")
+    print(f"Input tokens:  {ti:,}  @ ${PRICE_IN_PER_1K}/1k  -> ${cost_in:.6f}")
+    print(f"Output tokens: {to:,}  @ ${PRICE_OUT_PER_1K}/1k -> ${cost_out:.6f}")
+    print(f"Calls: {len(COST_LOG['calls'])}")
+    for i, c in enumerate(COST_LOG["calls"], 1):
+        print(f"  Call {i:02d}: in {c['in_tokens']}, out {c['out_tokens']}, cost ${c['cost_usd']:.6f}")
+    print(f"TOTAL: ${total:.6f}\n")
+
 def print_duel(dr: DuelResult) -> None:
     print(f"=== {dr.a.label()} vs {dr.b.label()} — {dr.arena.name} ===\n")
     print(_wrap(dr.scene_setter)); print()
     for rr in dr.rounds:
         print(f"Round {rr.r}")
+        if rr.hud: print(rr.hud)
         if rr.camera:
             print(rr.camera if rr.camera.startswith("CAMERA:") else f"CAMERA: {rr.camera}")
+        if rr.prop_events:
+            print(f"[Props] {rr.prop_events}")
         print(rr.a_text)
         print(rr.b_text)
         print(f"- Score Change: {_name(dr.a)} {rr.a_delta:+}, {_name(dr.b)} {rr.b_delta:+}")
@@ -646,18 +724,18 @@ def print_duel(dr: DuelResult) -> None:
     print(f"Winner: {dr.winner_label}")
     print("Finisher:")
     print(dr.finisher)
+    _print_cost_bill()
 
 # --------------- DOCX Export ---------------
 def export_duel_to_docx(dr: DuelResult, out_dir: str = DUEL_DOCX_DIR) -> Optional[str]:
     try:
         from docx import Document
-        from docx.shared import Pt, Inches
+        from docx.shared import Pt, Inches, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
     except Exception as e:
         print(f"[WARN] python-docx not installed; skip .docx export. ({e})")
         return None
 
-    # Resolve and create directory
     try:
         from pathlib import Path
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -665,7 +743,6 @@ def export_duel_to_docx(dr: DuelResult, out_dir: str = DUEL_DOCX_DIR) -> Optiona
         print(f"[WARN] Could not create output directory: {out_dir} ({e})")
         return None
 
-    # Build document
     doc = Document()
     for section in doc.sections:
         section.top_margin = Inches(0.8)
@@ -673,44 +750,60 @@ def export_duel_to_docx(dr: DuelResult, out_dir: str = DUEL_DOCX_DIR) -> Optiona
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-    # Title
-    p = doc.add_paragraph()
+    p = doc.add_heading(level=0)
     r = p.add_run(f"{dr.a.label()} vs {dr.b.label()} — {dr.arena.name}")
-    r.bold = True; r.font.size = Pt(22)
+    r.bold = True; r.font.size = Pt(24); 
+    try:
+        from docx.shared import RGBColor
+        r.font.color.rgb = RGBColor(31,73,125)
+    except Exception:
+        pass
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
     doc.add_paragraph()
+    h = doc.add_heading("Scene Intro", level=2)
+    doc.add_paragraph(dr.scene_setter)
+    doc.add_paragraph().add_run("———").bold = True
 
-    # Scene Intro
-    h = doc.add_paragraph(); hr = h.add_run("Scene Intro"); hr.bold = True; hr.font.size = Pt(14)
-    doc.add_paragraph(dr.scene_setter); doc.add_paragraph()
-
-    # Rounds
     for rr in dr.rounds:
-        doc.add_paragraph().add_run("").add_break()
-        h = doc.add_paragraph(); t = h.add_run(f"Round {rr.r}"); t.bold=True; t.font.size = Pt(14)
+        doc.add_paragraph()
+        doc.add_heading(f"Round {rr.r}", level=3)
+        if rr.hud:
+            para = doc.add_paragraph(rr.hud)
+            for run in para.runs: run.italic = True
         if rr.camera:
-            pcam = doc.add_paragraph(); rcam = pcam.add_run(rr.camera); rcam.italic = True
-        # A block
-        pa = doc.add_paragraph(); ra = pa.add_run(dr.a.label()); ra.bold = True
+            cam_para = doc.add_paragraph(rr.camera)
+            for run in cam_para.runs: run.italic = True
+        if rr.prop_events:
+            pp = doc.add_paragraph(f"[Props] {rr.prop_events}")
+            for run in pp.runs: run.italic = True
+        pa = doc.add_paragraph()
+        ra = pa.add_run(dr.a.label()); ra.bold = True
+        try: ra.font.color.rgb = RGBColor(31,73,125)
+        except: pass
         doc.add_paragraph(rr.a_text)
-        # B block
-        pb = doc.add_paragraph(); rb = pb.add_run(dr.b.label()); rb.bold = True
+        pb = doc.add_paragraph()
+        rb = pb.add_run(dr.b.label()); rb.bold = True
+        try: rb.font.color.rgb = RGBColor(31,73,125)
+        except: pass
         doc.add_paragraph(rr.b_text)
-        # Scores
-        sc = doc.add_paragraph(); r1 = sc.add_run("- Score Change: "); r1.bold=True
+        sc = doc.add_paragraph()
+        sc.add_run("- Score Change: ").bold=True
         sc.add_run(f"{_name(dr.a)} {rr.a_delta:+}, {_name(dr.b)} {rr.b_delta:+}")
-        st = doc.add_paragraph(); r2 = st.add_run("- Totals: "); r2.bold=True
+        st = doc.add_paragraph()
+        st.add_run("- Totals: ").bold=True
         st.add_run(f"{_name(dr.a)} {rr.a_total} — {_name(dr.b)} {rr.b_total}")
+        doc.add_paragraph().add_run("—").bold = True
 
-    # Winner / Finisher
-    doc.add_paragraph().add_run("").add_break()
-    hw = doc.add_paragraph(); rw = hw.add_run("Winner"); rw.bold = True; rw.font.size = Pt(14)
+    doc.add_paragraph()
+    doc.add_heading("Winner", level=2)
     w = doc.add_paragraph(); wr = w.add_run(dr.winner_label); wr.bold = True
-    doc.add_paragraph().add_run("").add_break()
-    hf = doc.add_paragraph(); rf = hf.add_run("Finisher"); rf.bold = True; rf.font.size = Pt(14)
+    try: wr.font.color.rgb = RGBColor(31,73,125)
+    except: pass
+    doc.add_paragraph()
+    doc.add_heading("Finisher", level=2)
     doc.add_paragraph(dr.finisher)
 
-    # Filename
     ts = _dt.datetime.now().strftime("%Y-%m-%d_%H%M")
     safe_arena = re.sub(r'[^A-Za-z0-9 _-]+', '', dr.arena.name).strip().replace(" ", "_")
     safe_a = re.sub(r'[^A-Za-z0-9 _-]+', '', dr.a.label()).strip().replace(" ", "_")
@@ -756,7 +849,6 @@ def default_villains() -> Tuple[Villain, Villain, Arena]:
         chosen_lair = random.choice([lair_a, lair_b]) or "Unknown Arena"
         tags = KNOWN_LAIR_TAGS.get(chosen_lair) or _auto_tags(chosen_lair)
         return va, vb, Arena(name=chosen_lair, tags=tags)
-    # Demo fallback
     aria = Villain(name="Aria Greene", alias="Mimic Mistress",
         powers=["Shapeshifting at cellular level; can grow bone/talon weapons."],
         weaknesses=["Extreme cold slows regeneration."],
@@ -775,11 +867,13 @@ def default_villains() -> Tuple[Villain, Villain, Arena]:
     return aria, chem, Arena(name=chosen["name"], tags=chosen["tags"])
 
 # --------------- Main ---------------
+def _print_cost_bill():
+    pass  # placeholder overwritten above
+
 def main():
     a, b, arena = default_villains()
     dr = run_duel(a,b,arena, rounds=ROUNDS)
     print_duel(dr)
-    # Auto-export to DOCX after printing
     export_duel_to_docx(dr, DUEL_DOCX_DIR)
 
 if __name__ == "__main__":
