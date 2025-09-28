@@ -549,7 +549,6 @@ def _injury_hud_line(ledger: dict, a_label: str, b_label: str) -> str:
     pos = ledger.get("positional_disadvantage") or "—"
     props = ledger.get("props_in_play", [])
     prop_txt = ", ".join(props) if props else "—"
-    return f"Status: {a_label} [{ia}] | {b_label} [{ib}] • Props in play: {prop_txt} • Disadvantage: {pos}"
 
 # --------------- Engine ---------------
 def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> DuelResult:
