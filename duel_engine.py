@@ -8,8 +8,6 @@
 # • Dirty tricks + power variety bias each round.
 # • Prop planning and per-round prop budget (3–4 foreground items).
 # • Alias-first everywhere; continuity respected.
-# • Injury HUD & CIC impact lines (console + DOCX).
-# • Prop lifecycle echoes (picked up/broken) (console + DOCX).
 # • Soft continuity scrub (explicit recoveries when previously prone).
 # • American locale bias in narration prompts.
 # • Scene variety bias between runs (avoid repeating last arena tags).
@@ -549,6 +547,7 @@ def _injury_hud_line(ledger: dict, a_label: str, b_label: str) -> str:
     pos = ledger.get("positional_disadvantage") or "—"
     props = ledger.get("props_in_play", [])
     prop_txt = ", ".join(props) if props else "—"
+    return ""
 
 # --------------- Engine ---------------
 def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> DuelResult:
@@ -659,9 +658,6 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             if last_prone == b.label() and not re.search(r'\b(gets? up|scrambl|push(es)? up|clambers|rises)\b', b_panel, flags=re.IGNORECASE):
                 b_panel = f"{b.label()} scrambles upright, bloodied and snarling, shaking off the knockdown. " + b_panel
 
-        hud = _injury_hud_line(ledger, a.label(), b.label())
-        penA, penB = ledger["penalties"].get(r, (0,0))
-        hud += f" • CIC impact: {a.label()} -{penA}, {b.label()} -{penB}"
         events = ledger.get("round_events", {}).get(r, [])
         ev_line = "; ".join(events) if events else ""
 
@@ -672,7 +668,7 @@ def run_duel(a: Villain, b: Villain, arena: Arena, rounds: int = ROUNDS) -> Duel
             camera=camera,
             a_delta=a_delta, b_delta=b_delta,
             a_total=a_total, b_total=b_total,
-            hud=_wrap(hud),
+            hud=None,
             prop_events=_wrap(ev_line) if ev_line else None
         ))
 
